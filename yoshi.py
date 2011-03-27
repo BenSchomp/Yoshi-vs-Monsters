@@ -4,7 +4,7 @@ from pygame.locals import *
 # constants
 GAME_WIDTH = 750
 GAME_HEIGHT = 750
-HORIZON_HEIGHT = 2 * (GAME_HEIGHT/3)
+HORIZON_HEIGHT = GAME_HEIGHT * 2/3
 
 TEXT_COLOR = (255, 255, 255)
 BACKGROUND_COLOR = (66, 138, 255)
@@ -138,7 +138,7 @@ while True:
     highScoreText = ''
     newMonsterRate = NEW_MONSTER_RATE
     monsterAddCounter = NEW_MONSTER_RATE / 2
-    yoshiRect.topleft = (GAME_WIDTH/2, GAME_HEIGHT - 100)
+    yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT * 5/6)
     moveLeft = moveRight = moveUp = moveDown = facingLeft = False
     if not MUTE:
         pygame.mixer.music.play(-1,0.0)
