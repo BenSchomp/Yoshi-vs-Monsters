@@ -16,6 +16,7 @@ MONSTERMAXSPEED = 5
 NUMBEROFMONSTERS = 4
 ADDNEWMONSTERRATE = 100
 YOSHIMOVERATE = 5
+MUTE = True
 
 def terminate():
     pygame.quit()
@@ -43,9 +44,42 @@ def drawText(text, font, surface, x, y):
     textrect.topleft = (x, y)
     surface.blit(textobj, textrect)
 
-def drawTextBox(text, surface):
-    textbox = surface.subsurface(pygame.Rect(200,200,400,200))
+def drawTextBox(text, parent, spacing=2):
+    textobjs = []
+    boxwidth, boxheight = 0, 0
+    linesize = font.get_linesize() # recommended line height
+    padding = 40
+
+    for line in text:
+        textobjs.append(font.render(line, 1, TEXTCOLOR)) # render line
+        textwidth, textheight = font.size(line) # height is ignored
+
+        if textwidth > boxwidth:
+            boxwidth = textwidth # maintain width of longest line
+
+    numlines = len(text) # number of lines to render = n + (n - 1)(s - 1)
+    boxheight = linesize * (numlines * spacing - spacing + 1)
+
+    boxwidth += padding
+    boxheight += padding
+
+    # center textbox rectangle on parent
+    textboxRect = pygame.Rect(0,0,boxwidth,boxheight)
+    textboxRect.center = (parent.get_width() / 2, parent.get_height() / 3)
+
+    # create textbox subsurface
+    textbox = parent.subsurface(textboxRect)
     textbox.fill((0,0,0))
+
+    y = padding / 2
+    for t in textobjs:
+        textrect = t.get_rect()
+        textrect.center = (boxwidth / 2, y + (linesize / 2))
+        textbox.blit(t, textrect)
+        y += linesize * spacing
+
+###############################################################################
+
 
 # setup pygame, the window, and mouse cursor
 pygame.init()
@@ -78,37 +112,34 @@ monsterSizes = [[68,63], [70,73], [51,58], [53,76]]
 
 # draw welcome screen
 windowSurface.fill(BACKGROUNDCOLOR)
-#pygame.draw.rect(windowSurface, (0,0,0), pygame.Rect(200,200,200,200))
-#drawText('Yoshi vs. Monsters!!!', font, windowSurface, (WINDOWWIDTH/3)-40, (WINDOWHEIGHT/3))
-#drawText('Press any key to start...', font_small, windowSurface, (WINDOWWIDTH/3)+25, (WINDOWHEIGHT/3)+150)
-drawTextBox("Hello World!", windowSurface)
+drawTextBox(['Yoshi vs. Monsters!!!', 'Press any key to start...'], windowSurface, spacing=3)
 pygame.display.update()
 waitForKeyPress()
 
-topScore = 0
+highScore = 0
 try:
     f = open('data/hiscore.dat', 'r')
     try:
         x = f.readline()
         if x.isdigit():
-            topScore = int(x)
+            highScore = int(x)
     finally:
         f.close()
 
 except IOError:
     print 'File not found!'
 
-print 'topScore: ', topScore
-
 while True:
     # setup the start of the game
     monsters = []
     score = 0
+    highScoreText = ''
     newMonsterRate = ADDNEWMONSTERRATE
     yoshiRect.topleft = (WINDOWWIDTH/2, WINDOWHEIGHT - 100)
     moveLeft = moveRight = moveUp = moveDown = facingLeft = False
     monsterAddCounter = 0
-    pygame.mixer.music.play(-1,0.0)
+    if not MUTE:
+        pygame.mixer.music.play(-1,0.0)
 
     while True: #the game loop!!
         score = score + 1
@@ -194,7 +225,7 @@ while True:
 
         # draw scores
         drawText('Score: %s' % (score), font, windowSurface, 10, 0)
-        drawText('Top Score: %s' % (topScore), font_small, windowSurface, 10, 40)
+        drawText('High Score: %s' % (highScore), font_small, windowSurface, 10, 40)
 
         # draw yoshi
         windowSurface.blit(yoshiImage, yoshiRect)
@@ -207,10 +238,11 @@ while True:
    
         # check if any monster has hit yoshi
         if yoshiHasHitMonster(yoshiRect, monsters):
-            if score > topScore:
-                topScore = score # new high score!
+            if score > highScore:
+                highScore = score # new high score!
+                highScoreText = 'New High Score!'
                 f = open('data/hiscore.dat', 'w')
-                f.write(str(topScore))
+                f.write(str(highScore))
                 f.close()
                 
             break
@@ -219,15 +251,11 @@ while True:
 
     # stop the game
     pygame.mixer.music.stop()
-    gameOverSound.play()
+    if not MUTE:
+        gameOverSound.play()
 
-    drawText('GAME OVER!', font, windowSurface, (WINDOWWIDTH/3), (WINDOWHEIGHT/3))
+    drawTextBox(['GAME OVER', highScoreText, 'Press any key to play again...'], windowSurface)
     pygame.display.update()
-    
-    pygame.time.delay(3000)
-    drawText('Press any key to play again...', font, windowSurface, (WINDOWWIDTH/3)-100, (WINDOWHEIGHT/3)+150)
-    pygame.display.update()
-    
     waitForKeyPress()
 
     gameOverSound.stop()
