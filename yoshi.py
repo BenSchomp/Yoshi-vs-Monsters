@@ -1,21 +1,23 @@
 import pygame, random, sys
 from pygame.locals import *
 
-WINDOWWIDTH = 750
-WINDOWHEIGHT = 750
-HORIZON = 2 * (WINDOWHEIGHT/3)
-TEXTCOLOR = (255, 255, 255)
-BACKGROUNDCOLOR = (66, 138, 255)
-FOREGROUNDCOLOR = (0, 127, 14)
-SUNCOLOR = (255, 216, 0)
+# constants
+GAME_WIDTH = 750
+GAME_HEIGHT = 750
+HORIZON_HEIGHT = 2 * (GAME_HEIGHT/3)
+
+TEXT_COLOR = (255, 255, 255)
+BACKGROUND_COLOR = (66, 138, 255)
+FOREGROUND_COLOR = (0, 127, 14)
+SUN_COLOR = (255, 216, 0)
+
 FPS = 40
-MONSTERMINSIZE = 25
-MONSTERMAXSIZE = 65
-MONSTERMINSPEED = 1
-MONSTERMAXSPEED = 5
-NUMBEROFMONSTERS = 4
-ADDNEWMONSTERRATE = 100
-YOSHIMOVERATE = 5
+MONSTER_MIN_SCALE = 6
+MONSTER_MIN_SPEED = 1
+MONSTER_MAX_SPEED = 5
+NUMBER_OF_MONSTERS = 4
+NEW_MONSTER_RATE = 100
+YOSHI_SPEED = 5
 MUTE = True
 
 def terminate():
@@ -39,7 +41,7 @@ def yoshiHasHitMonster(yoshiRect, monsters):
     return False
 
 def drawText(text, font, surface, x, y):
-    textobj = font.render(text, 1, TEXTCOLOR)
+    textobj = font.render(text, 1, TEXT_COLOR)
     textrect = textobj.get_rect()
     textrect.topleft = (x, y)
     surface.blit(textobj, textrect)
@@ -51,7 +53,7 @@ def drawTextBox(text, parent, spacing=2):
     padding = 40
 
     for line in text:
-        textobjs.append(font.render(line, 1, TEXTCOLOR)) # render line
+        textobjs.append(font.render(line, 1, TEXT_COLOR)) # render line
         textwidth, textheight = font.size(line) # height is ignored
 
         if textwidth > boxwidth:
@@ -84,7 +86,7 @@ def drawTextBox(text, parent, spacing=2):
 # setup pygame, the window, and mouse cursor
 pygame.init()
 mainClock = pygame.time.Clock()
-windowSurface = pygame.display.set_mode((WINDOWWIDTH, WINDOWHEIGHT))
+windowSurface = pygame.display.set_mode((GAME_WIDTH, GAME_HEIGHT))
 pygame.display.set_caption('Yoshi vs. Monsters')
 # pygame.mouse.set_visible(False)
 
@@ -111,7 +113,7 @@ for mi in monsterImages:
 monsterSizes = [[68,63], [70,73], [51,58], [53,76]]
 
 # draw welcome screen
-windowSurface.fill(BACKGROUNDCOLOR)
+windowSurface.fill(BACKGROUND_COLOR)
 drawTextBox(['Yoshi vs. Monsters!!!', 'Press any key to start...'], windowSurface, spacing=3)
 pygame.display.update()
 waitForKeyPress()
@@ -134,10 +136,10 @@ while True:
     monsters = []
     score = 0
     highScoreText = ''
-    newMonsterRate = ADDNEWMONSTERRATE
-    yoshiRect.topleft = (WINDOWWIDTH/2, WINDOWHEIGHT - 100)
+    newMonsterRate = NEW_MONSTER_RATE
+    monsterAddCounter = NEW_MONSTER_RATE / 2
+    yoshiRect.topleft = (GAME_WIDTH/2, GAME_HEIGHT - 100)
     moveLeft = moveRight = moveUp = moveDown = facingLeft = False
-    monsterAddCounter = 0
     if not MUTE:
         pygame.mixer.music.play(-1,0.0)
 
@@ -182,12 +184,12 @@ while True:
             if newMonsterRate > 40:
                 newMonsterRate -= 2
 
-            monsterScale = (random.randint (6,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
-            monsterType = random.randint(0,NUMBEROFMONSTERS-1)
+            monsterScale = (random.randint (MONSTER_MIN_SCALE,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
+            monsterType = random.randint(0,NUMBER_OF_MONSTERS-1)
             monsterWidth = int(monsterSizes[monsterType][0] * monsterScale)
             monsterHeight = int(monsterSizes[monsterType][1] * monsterScale)
-            newMonster = {'rect': pygame.Rect(random.randint(0, WINDOWWIDTH-monsterWidth),0, monsterWidth, monsterHeight),
-                          'speed': random.randint(MONSTERMINSPEED, MONSTERMAXSPEED),
+            newMonster = {'rect': pygame.Rect(random.randint(0, GAME_WIDTH-monsterWidth),0, monsterWidth, monsterHeight),
+                          'speed': random.randint(MONSTER_MIN_SPEED, MONSTER_MAX_SPEED),
                           'surface': pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight)),
                           }
             monsters.append(newMonster)
@@ -195,33 +197,33 @@ while True:
             
         # move yoshi around
         if moveLeft and yoshiRect.left > 0:
-            yoshiRect.move_ip(-1 * YOSHIMOVERATE, 0)
+            yoshiRect.move_ip(-1 * YOSHI_SPEED, 0)
             if not facingLeft:
                 yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
                 facingLeft = True
-        if moveRight and yoshiRect.right < WINDOWWIDTH:
-            yoshiRect.move_ip(YOSHIMOVERATE, 0)
+        if moveRight and yoshiRect.right < GAME_WIDTH:
+            yoshiRect.move_ip(YOSHI_SPEED, 0)
             if facingLeft:
                 yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
                 facingLeft = False
-        if moveUp and yoshiRect.bottom > HORIZON + 30:
-            yoshiRect.move_ip(0, -1 * YOSHIMOVERATE)
-        if moveDown and yoshiRect.bottom < WINDOWHEIGHT:
-            yoshiRect.move_ip(0, YOSHIMOVERATE)
+        if moveUp and yoshiRect.bottom > HORIZON_HEIGHT + 30:
+            yoshiRect.move_ip(0, -1 * YOSHI_SPEED)
+        if moveDown and yoshiRect.bottom < GAME_HEIGHT:
+            yoshiRect.move_ip(0, YOSHI_SPEED)
 
         # move monsters down
         for m in monsters:
             m['rect'].move_ip(0, m['speed'])
-            if m['rect'].top > WINDOWHEIGHT:
+            if m['rect'].top > GAME_HEIGHT:
                 monsters.remove(m)
              
         # move the mouse cursor to match the player
         #pygame.mouse.set_pos(yoshiRect.centerx, yoshiRect.centery)
 
         # draw the game world on the window
-        windowSurface.fill(BACKGROUNDCOLOR)
-        pygame.draw.rect(windowSurface, FOREGROUNDCOLOR, pygame.Rect(0,HORIZON,WINDOWWIDTH,HORIZON))
-        pygame.draw.circle(windowSurface, SUNCOLOR, (600, 100), 60)
+        windowSurface.fill(BACKGROUND_COLOR)
+        pygame.draw.rect(windowSurface, FOREGROUND_COLOR, pygame.Rect(0,HORIZON_HEIGHT,GAME_WIDTH,HORIZON_HEIGHT))
+        pygame.draw.circle(windowSurface, SUN_COLOR, (600, 100), 60)
 
         # draw scores
         drawText('Score: %s' % (score), font, windowSurface, 10, 0)
