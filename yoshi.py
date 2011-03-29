@@ -6,18 +6,22 @@ GAME_WIDTH = 750
 GAME_HEIGHT = 600
 HORIZON_HEIGHT = GAME_HEIGHT * 2/3
 
-TEXT_COLOR = (255, 255, 255)
-BACKGROUND_COLOR = (66, 138, 255)
-FOREGROUND_COLOR = (0, 127, 14)
-SUN_COLOR = (255, 216, 0)
+TEXT_COLOR = (255,255,255)
+SKY_COLOR = [(66,138,255), (255,120,0), (72,0,155), (28,0,63)]
+GROUND_COLOR = [(0,127,14), (0,89,14), (0,53,8), (0,33,4)]
+SUN_COLOR = [(255,216,0), (255,216,0), (255,255,125), (255,255,125)]
+SUN_LOC = [(600,100), (650,250), (200,300), (300,200)]
 
 FPS = 40
 MONSTER_MIN_SCALE = 6
 MONSTER_MIN_SPEED = 1
 MONSTER_MAX_SPEED = 5
 NUMBER_OF_MONSTERS = 5
+
 APPLE_TYPE = 0
 APPLE_POINTS = 500
+LEVEL_UP = 10
+
 NEW_MONSTER_RATE = 100
 YOSHI_SPEED = 5
 MUSIC_VOL = 0.5
@@ -112,6 +116,7 @@ gameOverSound = pygame.mixer.Sound('data/gameover.wav')
 yoshiSound    = pygame.mixer.Sound('data/yoshiii.wav')
 owowSound     = pygame.mixer.Sound('data/owow.wav')
 tongueSound   = pygame.mixer.Sound('data/tongue.wav')
+woahSound     = pygame.mixer.Sound('data/woah.wav')
 pygame.mixer.music.load('data/confutatis.mid')
 pygame.mixer.music.set_volume(MUSIC_VOL)
 
@@ -138,7 +143,7 @@ monsterSizes = [[40,43], # apple1.png
                 [68,63], [70,73], [51,58], [53,76]]
 
 # draw welcome screen
-windowSurface.fill(BACKGROUND_COLOR)
+windowSurface.fill(SKY_COLOR[0])
 drawTextBox(['Yoshi vs. Monsters!!!',
              '',
              'Avoid the Monsters, eat the Apples.',
@@ -171,12 +176,14 @@ except IOError:
 while True: # the program loop
     # a new game!
     score = 0
+    level = 0
     appleCount = 0
     numberOfLives = 3
     highScoreText = ''
     newMonsterRate = NEW_MONSTER_RATE
     yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
 
+    yoshiSound.play()
     while numberOfLives > 0: # the game loop
         # still alive!
         monsters = []
@@ -185,7 +192,6 @@ while True: # the program loop
         pygame.mixer.music.play(-1,0.0)
 
         playing = True
-        yoshiSound.play()
         while playing: # the event loop
             score = score + 1
 
@@ -261,11 +267,11 @@ while True: # the program loop
                     monsters.remove(m)
                  
             # draw the game world on the window
-            windowSurface.fill(BACKGROUND_COLOR)
-            pygame.draw.rect(windowSurface, FOREGROUND_COLOR,
+            windowSurface.fill(SKY_COLOR[level])
+            pygame.draw.rect(windowSurface, GROUND_COLOR[level],
                              pygame.Rect(0,HORIZON_HEIGHT,
                                          GAME_WIDTH,HORIZON_HEIGHT))
-            pygame.draw.circle(windowSurface, SUN_COLOR, (600, 100), 60)
+            pygame.draw.circle(windowSurface, SUN_COLOR[level], SUN_LOC[level], 60)
 
             # draw scores
             drawText('Score: %s' % (score), font, windowSurface, 10, 0)
@@ -301,7 +307,7 @@ while True: # the program loop
                 windowSurface.blit(eggImage, eggRect)
 
             # draw appleCount
-            for apple in range (0, 10):
+            for apple in range (0, LEVEL_UP):
                 appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
                                         GAME_HEIGHT-30, 25, 27)
                 windowSurface.blit(appleImage if apple < appleCount else
@@ -310,6 +316,12 @@ while True: # the program loop
             # update the screen
             pygame.display.update()
             mainClock.tick(FPS)
+
+            if appleCount >= LEVEL_UP:
+                appleCount = 0
+                level += 1
+                if level > 3: level = 0 # temp wrap
+                yoshiSound.play()
 
         # -- end of event loop (still playing?) --
 
