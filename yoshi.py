@@ -10,7 +10,10 @@ TEXT_COLOR = (255,255,255)
 SKY_COLOR = [(66,138,255), (255,120,0), (72,0,155), (28,0,63)]
 GROUND_COLOR = [(0,127,14), (0,89,14), (0,53,8), (0,33,4)]
 SUN_COLOR = [(255,216,0), (255,216,0), (255,255,125), (255,255,125)]
-SUN_LOC = [(600,100), (650,250), (200,300), (300,200)]
+SUN_LOC = [(550,150), (650,300), (-100,-100), (200,300), (300,200)]
+STAR_LOCS = [[],[],
+             [(200,100), (300,250), (500,50)],
+             [(325,100), (600,150), (500,50)]]
 
 FPS = 40
 MONSTER_MIN_SCALE = 6
@@ -19,12 +22,14 @@ MONSTER_MAX_SPEED = 5
 NUMBER_OF_MONSTERS = 5
 
 APPLE_TYPE = 0
-APPLE_POINTS = 500
-LEVEL_UP = 10
+APPLE_POINTS = 100
+#LEVEL_UP = [2,2,2,2]
+LEVEL_UP = [5,6,7,10]
 
-NEW_MONSTER_RATE = 100
+NEW_MONSTER_RATE = 120
 YOSHI_SPEED = 5
-MUSIC_VOL = 0.5
+MUSIC_VOL = 0.4
+SOUND_VOL = 0.8
 
 # util functions
 def terminate():
@@ -87,8 +92,12 @@ def drawTextBox(text, parent, spacing=2):
 def toggleMute(mute):
     mute = not mute
     if mute:
+        for key,s in sounds.items():
+            s.set_volume(0)
         pygame.mixer.music.set_volume(0)
     else:
+        for key,s in sounds.items():
+            s.set_volume(SOUND_VOL)
         pygame.mixer.music.set_volume(MUSIC_VOL)
 
     return mute
@@ -109,14 +118,19 @@ pygame.mouse.set_visible(False)
 font = pygame.font.SysFont(None, 36)
 font_small = pygame.font.SysFont(None, 24)
 
-# setup sounds
+# setup sounds & music
 mute = False
 # source -- http://www.mfgg.net/index.php?act=resdb&param=03&c=5&id=24121
-gameOverSound = pygame.mixer.Sound('data/gameover.wav')
-yoshiSound    = pygame.mixer.Sound('data/yoshiii.wav')
-owowSound     = pygame.mixer.Sound('data/owow.wav')
-tongueSound   = pygame.mixer.Sound('data/tongue.wav')
-woahSound     = pygame.mixer.Sound('data/woah.wav')
+sounds = {'gameOver': pygame.mixer.Sound('data/gameover.wav'),
+          'yoshi':    pygame.mixer.Sound('data/yoshiii.wav'),
+          'owow':     pygame.mixer.Sound('data/owow.wav'),
+          'tongue':   pygame.mixer.Sound('data/tongue.wav'),
+          'appleX':   pygame.mixer.Sound('data/apple_loss.wav'),
+          'eggX':     pygame.mixer.Sound('data/egg_loss.wav'),
+          'woah':     pygame.mixer.Sound('data/woah.wav'), }
+for key,s in sounds.items():
+    s.set_volume(SOUND_VOL)
+
 pygame.mixer.music.load('data/confutatis.mid')
 pygame.mixer.music.set_volume(MUSIC_VOL)
 
@@ -153,7 +167,7 @@ drawTextBox(['Yoshi vs. Monsters!!!',
              '',
              'PRESS ANY KEY TO START',
              '',
-             'v0.1 March 26, 2011',
+             'v0.3 March 29, 2011',
              'by Elsie, Charlie & Ben Schomp',
              ], windowSurface, spacing=1)
 pygame.display.update()
@@ -171,7 +185,7 @@ try:
         f.close()
 
 except IOError:
-    print 'File not found!'
+    pass # print 'File not found!'
 
 while True: # the program loop
     # a new game!
@@ -183,9 +197,10 @@ while True: # the program loop
     newMonsterRate = NEW_MONSTER_RATE
     yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
 
-    yoshiSound.play()
+    sounds['yoshi'].play()
     while numberOfLives > 0: # the game loop
         # still alive!
+        appleCount = 0
         monsters = []
         monsterAddCounter = NEW_MONSTER_RATE / 2
         moveLeft = moveRight = moveUp = moveDown = False
@@ -201,6 +216,10 @@ while True: # the program loop
                     terminate()
 
                 if event.type == KEYDOWN:
+                    if event.key == ord('1'): level = 0
+                    if event.key == ord('2'): level = 1
+                    if event.key == ord('3'): level = 2
+                    if event.key == ord('4'): level = 3
                     if event.key == K_LEFT:  moveLeft = True;  moveRight = False
                     if event.key == K_RIGHT: moveLeft = False; moveRight = True
                     if event.key == K_UP:    moveDown = False; moveUp = True
@@ -229,15 +248,16 @@ while True: # the program loop
             monsterAddCounter += 1
             if monsterAddCounter >= newMonsterRate:
                 monsterAddCounter = 0
-                if newMonsterRate > 40:
-                    newMonsterRate -= 2
+                if newMonsterRate > 10:
+                    # print "newMonsterRate: %d" % (newMonsterRate)
+                    newMonsterRate -= 1
 
                 monsterScale = (random.randint (MONSTER_MIN_SCALE,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
                 monsterType = random.randint(0,NUMBER_OF_MONSTERS-1)
                 monsterWidth = int(monsterSizes[monsterType][0] * monsterScale)
                 monsterHeight = int(monsterSizes[monsterType][1] * monsterScale)
                 newMonster = {'rect': pygame.Rect(random.randint(0, GAME_WIDTH-monsterWidth),0, monsterWidth, monsterHeight),
-                              'speed': random.randint(MONSTER_MIN_SPEED, MONSTER_MAX_SPEED),
+                              'speed': random.randint(MONSTER_MIN_SPEED+level, MONSTER_MAX_SPEED+level),
                               'surface': pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight)),
                               'type': monsterType,
                               }
@@ -265,18 +285,24 @@ while True: # the program loop
                 m['rect'].move_ip(0, m['speed'])
                 if m['rect'].top > GAME_HEIGHT:
                     monsters.remove(m)
+                    if m['type'] == APPLE_TYPE and appleCount > 0:
+                        sounds['appleX'].play()
+                        appleCount -= 1
                  
             # draw the game world on the window
             windowSurface.fill(SKY_COLOR[level])
+            pygame.draw.circle(windowSurface, SUN_COLOR[level], SUN_LOC[level], 60)
+            if level >= 2:
+                for s in STAR_LOCS[level]:
+                    pygame.draw.circle(windowSurface, SUN_COLOR[level], s, 3)
             pygame.draw.rect(windowSurface, GROUND_COLOR[level],
                              pygame.Rect(0,HORIZON_HEIGHT,
                                          GAME_WIDTH,HORIZON_HEIGHT))
-            pygame.draw.circle(windowSurface, SUN_COLOR[level], SUN_LOC[level], 60)
 
             # draw scores
             drawText('Score: %s' % (score), font, windowSurface, 10, 0)
-            drawText('High Score: %s' % (highScore),
-                     font_small, windowSurface, 10, 30)
+            drawText('High Score: %s' % (highScore), font_small, windowSurface, 10, 26)
+            drawText('Level: %s' % (level+1), font_small, windowSurface, 10, 46)
 
             # draw yoshi
             windowSurface.blit(yoshiImage, yoshiRect)
@@ -285,48 +311,64 @@ while True: # the program loop
             for m in monsters:
                 windowSurface.blit(m['surface'], m['rect'])
 
-            # check if any monster has hit yoshi
-            for m in monsters:
-                if yoshiRect.colliderect(m['rect']):
-                    if m['type'] == APPLE_TYPE:
-                        score += APPLE_POINTS
-                        appleCount += 1
-                        # +500 animation? #drawText('+%d' % (APPLE_POINTS), font_small, m['surface'], m['rect'].x, m['rect'].y)
-                        tongueSound.play()
-                        monsters.remove(m)
-                    else:
-                        # monster collision
-                        owowSound.play()
-                        numberOfLives -= 1
-                        playing = False
-                        break
-
             # draw life eggs
             for egg in range (0, numberOfLives):
                 eggRect = pygame.Rect((40*egg)+5, GAME_HEIGHT-40, 30, 36)
                 windowSurface.blit(eggImage, eggRect)
 
             # draw appleCount
-            for apple in range (0, LEVEL_UP):
+            for apple in range (0, LEVEL_UP[level]):
                 appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
                                         GAME_HEIGHT-30, 25, 27)
                 windowSurface.blit(appleImage if apple < appleCount else
                                    blankAppleImage, appleRect)
 
+            # check if any monster has hit yoshi
+            for m in monsters:
+                if yoshiRect.colliderect(m['rect']):
+                    if m['type'] == APPLE_TYPE:
+                        ch = sounds['tongue'].play()
+                        score += APPLE_POINTS * LEVEL_UP[level]
+                        appleCount += 1
+                        # +500 animation? #drawText('+%d' % (APPLE_POINTS), font_small, m['surface'], m['rect'].x, m['rect'].y)
+                        monsters.remove(m)
+                    else:
+                        # monster collision
+                        pygame.mixer.music.stop()
+                        ch = sounds['owow'].play()
+                        numberOfLives -= 1
+                        playing = False
+                        break
+
             # update the screen
             pygame.display.update()
             mainClock.tick(FPS)
 
-            if appleCount >= LEVEL_UP:
+            if appleCount >= LEVEL_UP[level]:
+                ch.queue(sounds['yoshi'])
                 appleCount = 0
-                level += 1
-                if level > 3: level = 0 # temp wrap
-                yoshiSound.play()
+                if level < 4:
+                    level += 1
 
         # -- end of event loop (still playing?) --
 
+        # in case the music is still going
         pygame.mixer.music.stop()
 
+        # wait a bit...
+        while ch.get_busy(): pass
+        pygame.time.wait(2000)
+
+        # erase egg + sound effect
+        pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
+        ch = sounds['eggX'].play()
+        pygame.display.update();
+
+        # wait and prompt user...
+        while ch.get_busy(): pass
+        pygame.time.wait(2000)
+
+        pygame.event.clear()
         if numberOfLives > 0:
           drawTextBox(['Press any key to continue...'], windowSurface)
           pygame.display.update()
@@ -336,7 +378,7 @@ while True: # the program loop
 
     # game over :(
     pygame.mixer.music.stop()
-    gameOverSound.play()
+    sounds['gameOver'].play()
 
     if score > highScore:
         highScore = score # new high score!
@@ -352,7 +394,7 @@ while True: # the program loop
     pygame.display.update()
     waitForKeyPress()
 
-    gameOverSound.stop()
+    sounds['gameOver'].stop()
     gameOver = False
 
 # -- end of program loop (infinite)
