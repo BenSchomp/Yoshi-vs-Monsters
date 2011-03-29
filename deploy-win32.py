@@ -33,7 +33,7 @@ class BuildExe:
         self.script = "yoshi.py"
  
         #Name of program
-        self.project_name = "Yoshi v. Monsters!"
+        self.project_name = "Yoshi vs. Monsters!"
  
         #Project url
         self.project_url = "about:none"
@@ -50,7 +50,7 @@ class BuildExe:
         self.copyright = "Copyright (c) 2011 Ben Schomp."
  
         #Description
-        self.project_description = "Yoshi v. Monsters!"
+        self.project_description = "Yoshi vs. Monsters!"
  
         #Icon file (None will use pygame default icon)
         self.icon_file = 'data/pygame.ico'
