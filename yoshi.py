@@ -6,6 +6,8 @@ GAME_WIDTH = 750
 GAME_HEIGHT = 600
 HORIZON_HEIGHT = GAME_HEIGHT * 2/3
 
+ONE_SEC = 1000
+
 TEXT_COLOR = (255,255,255)
 SKY_COLOR = [(66,138,255), (255,120,0), (72,0,155), (28,0,63)]
 GROUND_COLOR = [(0,127,14), (0,89,14), (0,53,8), (0,33,4)]
@@ -20,13 +22,13 @@ MONSTER_MIN_SCALE = 6
 MONSTER_MIN_SPEED = 1
 MONSTER_MAX_SPEED = 5
 NUMBER_OF_MONSTERS = 5
+MAX_MONSTER_RATE = [110,90,70,50,30,10]
 
 APPLE_TYPE = 0
 APPLE_POINTS = 100
-#LEVEL_UP = [2,2,2,2]
 LEVEL_UP = [5,6,7,10]
+NUM_LEVELS = 4
 
-NEW_MONSTER_RATE = 120
 YOSHI_SPEED = 5
 MUSIC_VOL = 0.4
 SOUND_VOL = 0.8
@@ -194,7 +196,6 @@ while True: # the program loop
     appleCount = 0
     numberOfLives = 3
     highScoreText = ''
-    newMonsterRate = NEW_MONSTER_RATE
     yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
 
     sounds['yoshi'].play()
@@ -202,7 +203,8 @@ while True: # the program loop
         # still alive!
         appleCount = 0
         monsters = []
-        monsterAddCounter = NEW_MONSTER_RATE / 2
+        newMonsterRate = MAX_MONSTER_RATE[level] # this reset might make game too 'easy'
+        monsterAddCounter = MAX_MONSTER_RATE[level] / 2
         moveLeft = moveRight = moveUp = moveDown = False
         pygame.mixer.music.play(-1,0.0)
 
@@ -248,8 +250,7 @@ while True: # the program loop
             monsterAddCounter += 1
             if monsterAddCounter >= newMonsterRate:
                 monsterAddCounter = 0
-                if newMonsterRate > 10:
-                    # print "newMonsterRate: %d" % (newMonsterRate)
+                if newMonsterRate > MAX_MONSTER_RATE[level+1]:
                     newMonsterRate -= 1
 
                 monsterScale = (random.randint (MONSTER_MIN_SCALE,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
@@ -303,6 +304,7 @@ while True: # the program loop
             drawText('Score: %s' % (score), font, windowSurface, 10, 0)
             drawText('High Score: %s' % (highScore), font_small, windowSurface, 10, 26)
             drawText('Level: %s' % (level+1), font_small, windowSurface, 10, 46)
+            # debug drawText('newMonsterRate: %s' % (newMonsterRate), font_small, windowSurface, 200, GAME_HEIGHT-30)
 
             # draw yoshi
             windowSurface.blit(yoshiImage, yoshiRect)
@@ -347,7 +349,7 @@ while True: # the program loop
             if appleCount >= LEVEL_UP[level]:
                 ch.queue(sounds['yoshi'])
                 appleCount = 0
-                if level < 4:
+                if level < NUM_LEVELS:
                     level += 1
 
         # -- end of event loop (still playing?) --
@@ -355,24 +357,26 @@ while True: # the program loop
         # in case the music is still going
         pygame.mixer.music.stop()
 
-        # wait a bit...
-        while ch.get_busy(): pass
-        pygame.time.wait(2000)
-
-        # erase egg + sound effect
-        pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
-        ch = sounds['eggX'].play()
-        pygame.display.update();
-
-        # wait and prompt user...
-        while ch.get_busy(): pass
-        pygame.time.wait(2000)
-
-        pygame.event.clear()
         if numberOfLives > 0:
-          drawTextBox(['Press any key to continue...'], windowSurface)
-          pygame.display.update()
-          waitForKeyPress()
+            # wait a bit...
+            while ch.get_busy(): pass
+            pygame.time.wait(ONE_SEC)
+
+            # erase egg + sound effect
+            pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
+            ch = sounds['eggX'].play()
+            pygame.display.update();
+
+            # wait and prompt user...
+            while ch.get_busy(): pass
+            pygame.time.wait(ONE_SEC)
+            pygame.time.wait(ONE_SEC)
+
+            pygame.event.clear()
+            if numberOfLives > 0:
+              drawTextBox(['Press any key to continue...'], windowSurface)
+              pygame.display.update()
+              waitForKeyPress()
 
     # -- end of game loop (still alive?) --
 
