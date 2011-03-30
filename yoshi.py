@@ -26,12 +26,13 @@ NUMBER_OF_MONSTERS = 5
 MAX_MONSTER_RATE = [110,90,70,50,30,10]
 
 APPLE_TYPE = 0
-APPLE_POINTS = 100
-LEVEL_UP = [5,6,7,8,10]
 NUM_LEVELS = 5
-LIFE_UP = 25000 # multiples of...
+APPLE_POINTS = [200, 300, 500, 700, 1000]
+LEVEL_UP_APPLES = [5,6,7,8,9]
+LEVEL_UP_BONUS = [1000, 2000, 4000, 6000, 10000]
+FREE_GUY_POINTS = [25000, 75000]
 
-YOSHI_SPEED = 5
+YOSHI_SPEED = 5 # maybe increase this slightly on harder levels?
 MUSIC_VOL = 0.3
 SOUND_VOL = 0.9
 
@@ -201,12 +202,12 @@ while True: # the program loop
     while numberOfLives > 0 and not gameWon: # the game loop
         # still alive!
 
-        appleCount = 0 # reset the apples
+        appleCount = 0 # reset the apples (maybe halve this on death?)
         pygame.mixer.music.play(-1,0.0) # start the music
 
         # reset monsters
         monsters = []
-        newMonsterRate = MAX_MONSTER_RATE[level] # makes game too 'easy'?
+        newMonsterRate = MAX_MONSTER_RATE[level]
         monsterAddCounter = MAX_MONSTER_RATE[level] * (3/4)
 
         # reset yoshi
@@ -329,7 +330,7 @@ while True: # the program loop
                 windowSurface.blit(eggImage, eggRect)
 
             # draw appleCount
-            for apple in range (0, LEVEL_UP[level]):
+            for apple in range (0, LEVEL_UP_APPLES[level]):
                 appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
                                         GAME_HEIGHT-30, 25, 27)
                 windowSurface.blit(appleImage if apple < appleCount else
@@ -340,7 +341,7 @@ while True: # the program loop
                 if yoshiRect.colliderect(m['rect']):
                     if m['type'] == APPLE_TYPE:
                         ch = sounds['tongue'].play()
-                        score += APPLE_POINTS * LEVEL_UP[level]
+                        score += APPLE_POINTS[level]
                         appleCount += 1
                         # +500 animation? #drawText('+%d' % (APPLE_POINTS), font_small, m['surface'], m['rect'].x, m['rect'].y)
                         monsters.remove(m)
@@ -356,13 +357,15 @@ while True: # the program loop
             pygame.display.update()
             mainClock.tick(FPS)
             score += 1
-            if numberOfLives < 5 and score % LIFE_UP == 0:
+            if FREE_GUY_POINTS and score > FREE_GUY_POINTS[0]:
+                FREE_GUY_POINTS.pop(0)
                 numberOfLives += 1
                 sounds['ba-ding'].play()
 
-            if appleCount >= LEVEL_UP[level]:
+            if appleCount >= LEVEL_UP_APPLES[level]:
                 ch.queue(sounds['yoshi'])
                 appleCount = 0
+                score += LEVEL_UP_BONUS[level]
                 level += 1
                 if level >= NUM_LEVELS:
                     ch.queue(sounds['woah'])
