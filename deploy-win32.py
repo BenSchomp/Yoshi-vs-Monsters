@@ -53,7 +53,7 @@ class BuildExe:
         self.project_description = "Yoshi vs. Monsters!"
  
         #Icon file (None will use pygame default icon)
-        self.icon_file = 'data/pygame.ico'
+        self.icon_file = 'data/yoshi.ico'
  
         #Extra files/dirs copied to game
         self.extra_datas = ['data']
