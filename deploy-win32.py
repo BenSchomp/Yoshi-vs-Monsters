@@ -39,7 +39,7 @@ class BuildExe:
         self.project_url = "about:none"
  
         #Version of program
-        self.project_version = "0.1"
+        self.project_version = "0.4"
  
         #License of the program
         self.license = "MyApps License"
@@ -148,7 +148,7 @@ class BuildExe:
         
         if os.path.isdir('build'): #Clean up build dir
             shutil.rmtree('build')
- 
+
 if __name__ == '__main__':
     if operator.lt(len(sys.argv), 2):
         sys.argv.append('py2exe')
