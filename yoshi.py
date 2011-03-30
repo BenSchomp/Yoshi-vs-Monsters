@@ -196,21 +196,28 @@ while True: # the program loop
     appleCount = 0
     numberOfLives = 3
     highScoreText = ''
-    yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
 
     sounds['yoshi'].play()
     while numberOfLives > 0: # the game loop
         # still alive!
-        appleCount = 0
+
+        appleCount = 0 # reset the apples
+        pygame.mixer.music.play(-1,0.0) # start the music
+
+        # reset monsters
         monsters = []
-        newMonsterRate = MAX_MONSTER_RATE[level] # this reset might make game too 'easy'
-        monsterAddCounter = MAX_MONSTER_RATE[level] / 2
+        newMonsterRate = MAX_MONSTER_RATE[level] # makes game too 'easy'?
+        monsterAddCounter = MAX_MONSTER_RATE[level] * (3/4)
+
+        # reset yoshi
+        yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
         moveLeft = moveRight = moveUp = moveDown = False
-        pygame.mixer.music.play(-1,0.0)
+        if facingLeft:
+            yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
+            facingLeft = False
 
         playing = True
         while playing: # the event loop
-            score = score + 1
 
             # process events
             for event in pygame.event.get():
@@ -222,19 +229,24 @@ while True: # the program loop
                     if event.key == ord('2'): level = 1
                     if event.key == ord('3'): level = 2
                     if event.key == ord('4'): level = 3
+
                     if event.key == K_LEFT:  moveLeft = True;  moveRight = False
                     if event.key == K_RIGHT: moveLeft = False; moveRight = True
                     if event.key == K_UP:    moveDown = False; moveUp = True
                     if event.key == K_DOWN:  moveDown = True;  moveUp = False
+
                     if event.key == ord('p'):
                         toggleMute(False)
-                        drawTextBox(['PAUSED',
-                                     'Press any key to continue...'],
+                        drawTextBox(['PAUSED', 'Press any key to continue...'],
                                     windowSurface)
                         pygame.display.update()
                         waitForKeyPress()
                         if not mute:
                             toggleMute(True)
+                        pygame.event.clear()
+                        break
+                    if event.key == K_ESCAPE or event.key == ord('q'):
+                        terminate()
                         
                 if event.type == KEYUP:
                     if event.key == K_LEFT:  moveLeft = False
@@ -242,8 +254,6 @@ while True: # the program loop
                     if event.key == K_UP:    moveUp = False
                     if event.key == K_DOWN:  moveDown = False
                     if event.key == ord('m'): mute = toggleMute(mute)
-                    if event.key == K_ESCAPE or event.key == ord('q'):
-                        terminate()
             # end event processing
 
             # add a new monster?
@@ -345,6 +355,7 @@ while True: # the program loop
             # update the screen
             pygame.display.update()
             mainClock.tick(FPS)
+            score = score + 1
 
             if appleCount >= LEVEL_UP[level]:
                 ch.queue(sounds['yoshi'])
@@ -357,32 +368,30 @@ while True: # the program loop
         # in case the music is still going
         pygame.mixer.music.stop()
 
-        if numberOfLives > 0:
-            # wait a bit...
-            while ch.get_busy(): pass
-            pygame.time.wait(ONE_SEC)
 
-            # erase egg + sound effect
-            pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
-            ch = sounds['eggX'].play()
-            pygame.display.update();
+        if numberOfLives <= 0:
+            ch = sounds['gameOver'].play()
 
-            # wait and prompt user...
-            while ch.get_busy(): pass
-            pygame.time.wait(ONE_SEC)
-            pygame.time.wait(ONE_SEC)
+        # wait a bit...
+        while ch.get_busy(): pass
+        pygame.time.wait(ONE_SEC)
 
-            pygame.event.clear()
-            if numberOfLives > 0:
-              drawTextBox(['Press any key to continue...'], windowSurface)
-              pygame.display.update()
-              waitForKeyPress()
+        # erase egg + sound effect
+        pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
+        ch = sounds['eggX'].play()
+        pygame.display.update();
+
+        # wait again...
+        while ch.get_busy(): pass
+        pygame.time.wait(ONE_SEC)
+
+        pygame.time.wait(ONE_SEC)
+        pygame.event.clear()
 
     # -- end of game loop (still alive?) --
 
     # game over :(
     pygame.mixer.music.stop()
-    sounds['gameOver'].play()
 
     if score > highScore:
         highScore = score # new high score!
@@ -391,10 +400,9 @@ while True: # the program loop
         f.write(str(highScore))
         f.close()
 
-
-    drawTextBox(['GAME OVER',
-                 highScoreText,
-                 'Press any key to play again...'], windowSurface)
+    drawTextBox(['GAME OVER', '', highScoreText, '',
+                 'Press any key to play again...', '(\'q\' to quit)'],
+                 windowSurface, spacing=1)
     pygame.display.update()
     waitForKeyPress()
 
