@@ -9,13 +9,14 @@ HORIZON_HEIGHT = GAME_HEIGHT * 2/3
 ONE_SEC = 1000
 
 TEXT_COLOR = (255,255,255)
-SKY_COLOR = [(66,138,255), (255,120,0), (72,0,155), (28,0,63)]
-GROUND_COLOR = [(0,127,14), (0,89,14), (0,53,8), (0,33,4)]
-SUN_COLOR = [(255,216,0), (255,216,0), (255,255,125), (255,255,125)]
-SUN_LOC = [(550,150), (650,300), (-100,-100), (200,300), (300,200)]
+SKY_COLOR = [(66,138,255), (255,120,0), (72,0,155), (28,0,63), (20,0,24)]
+GROUND_COLOR = [(0,127,14), (0,89,14), (0,53,8), (0,33,4), (0,16,4)]
+SUN_COLOR = [(255,216,0), (255,216,0), (255,255,125), (255,255,125), (255,255,125)]
+SUN_LOC = [(550,150), (650,300), (-100,-100), (200,300), (300,200), (275,75)]
 STAR_LOCS = [[],[],
              [(200,100), (300,250), (500,50)],
-             [(325,100), (600,150), (500,50)]]
+             [(325,100), (600,150), (500,50)],
+             [(550,200), (675,75), (500,50)]]
 
 FPS = 40
 MONSTER_MIN_SCALE = 6
@@ -26,12 +27,13 @@ MAX_MONSTER_RATE = [110,90,70,50,30,10]
 
 APPLE_TYPE = 0
 APPLE_POINTS = 100
-LEVEL_UP = [5,6,7,10]
-NUM_LEVELS = 4
+LEVEL_UP = [5,6,7,8,10]
+NUM_LEVELS = 5
+LIFE_UP = 25000 # multiples of...
 
 YOSHI_SPEED = 5
-MUSIC_VOL = 0.4
-SOUND_VOL = 0.8
+MUSIC_VOL = 0.3
+SOUND_VOL = 0.9
 
 # util functions
 def terminate():
@@ -43,7 +45,7 @@ def waitForKeyPress():
         for event in pygame.event.get():
             if event.type == QUIT:
                 terminate()
-            if event.type == KEYDOWN:
+            if event.type == KEYUP:
                 if event.key == K_ESCAPE: # pressing esc quits
                     terminate()
                 return
@@ -121,7 +123,6 @@ font = pygame.font.SysFont(None, 36)
 font_small = pygame.font.SysFont(None, 24)
 
 # setup sounds & music
-mute = False
 # source -- http://www.mfgg.net/index.php?act=resdb&param=03&c=5&id=24121
 sounds = {'gameOver': pygame.mixer.Sound('data/gameover.wav'),
           'yoshi':    pygame.mixer.Sound('data/yoshiii.wav'),
@@ -129,12 +130,10 @@ sounds = {'gameOver': pygame.mixer.Sound('data/gameover.wav'),
           'tongue':   pygame.mixer.Sound('data/tongue.wav'),
           'appleX':   pygame.mixer.Sound('data/apple_loss.wav'),
           'eggX':     pygame.mixer.Sound('data/egg_loss.wav'),
+          'ba-ding':  pygame.mixer.Sound('data/ba-ding.wav'),
           'woah':     pygame.mixer.Sound('data/woah.wav'), }
-for key,s in sounds.items():
-    s.set_volume(SOUND_VOL)
-
 pygame.mixer.music.load('data/confutatis.mid')
-pygame.mixer.music.set_volume(MUSIC_VOL)
+mute = toggleMute(True)
 
 # setup images
 yoshiImage = pygame.image.load('data/yoshi.png')
@@ -229,12 +228,20 @@ while True: # the program loop
                     if event.key == ord('2'): level = 1
                     if event.key == ord('3'): level = 2
                     if event.key == ord('4'): level = 3
+                    if event.key == ord('5'): level = 4
 
                     if event.key == K_LEFT:  moveLeft = True;  moveRight = False
                     if event.key == K_RIGHT: moveLeft = False; moveRight = True
                     if event.key == K_UP:    moveDown = False; moveUp = True
                     if event.key == K_DOWN:  moveDown = True;  moveUp = False
 
+                if event.type == KEYUP:
+                    if event.key == K_LEFT:  moveLeft = False
+                    if event.key == K_RIGHT: moveRight = False
+                    if event.key == K_UP:    moveUp = False
+                    if event.key == K_DOWN:  moveDown = False
+
+                    if event.key == ord('m'): mute = toggleMute(mute)
                     if event.key == ord('p'):
                         toggleMute(False)
                         drawTextBox(['PAUSED', 'Press any key to continue...'],
@@ -243,17 +250,9 @@ while True: # the program loop
                         waitForKeyPress()
                         if not mute:
                             toggleMute(True)
-                        pygame.event.clear()
-                        break
                     if event.key == K_ESCAPE or event.key == ord('q'):
                         terminate()
                         
-                if event.type == KEYUP:
-                    if event.key == K_LEFT:  moveLeft = False
-                    if event.key == K_RIGHT: moveRight = False
-                    if event.key == K_UP:    moveUp = False
-                    if event.key == K_DOWN:  moveDown = False
-                    if event.key == ord('m'): mute = toggleMute(mute)
             # end event processing
 
             # add a new monster?
@@ -311,9 +310,9 @@ while True: # the program loop
                                          GAME_WIDTH,HORIZON_HEIGHT))
 
             # draw scores
-            drawText('Score: %s' % (score), font, windowSurface, 10, 0)
-            drawText('High Score: %s' % (highScore), font_small, windowSurface, 10, 26)
-            drawText('Level: %s' % (level+1), font_small, windowSurface, 10, 46)
+            drawText('Score: %s' % (score), font, windowSurface, 10, 2)
+            drawText('Level: %s' % (level+1), font, windowSurface, 650, 2)
+            drawText('High Score: %s' % (highScore), font_small, windowSurface, 300, 5)
             # debug drawText('newMonsterRate: %s' % (newMonsterRate), font_small, windowSurface, 200, GAME_HEIGHT-30)
 
             # draw yoshi
@@ -355,7 +354,10 @@ while True: # the program loop
             # update the screen
             pygame.display.update()
             mainClock.tick(FPS)
-            score = score + 1
+            score += 1
+            if numberOfLives < 5 and score % LIFE_UP == 0:
+                numberOfLives += 1
+                sounds['ba-ding'].play()
 
             if appleCount >= LEVEL_UP[level]:
                 ch.queue(sounds['yoshi'])
