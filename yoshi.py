@@ -194,10 +194,11 @@ while True: # the program loop
     level = 0
     appleCount = 0
     numberOfLives = 3
+    gameWon = False
     highScoreText = ''
 
     sounds['yoshi'].play()
-    while numberOfLives > 0: # the game loop
+    while numberOfLives > 0 and not gameWon: # the game loop
         # still alive!
 
         appleCount = 0 # reset the apples
@@ -224,11 +225,11 @@ while True: # the program loop
                     terminate()
 
                 if event.type == KEYDOWN:
-                    if event.key == ord('1'): level = 0
-                    if event.key == ord('2'): level = 1
-                    if event.key == ord('3'): level = 2
-                    if event.key == ord('4'): level = 3
-                    if event.key == ord('5'): level = 4
+                    # if event.key == ord('1'): level = 0
+                    # if event.key == ord('2'): level = 1
+                    # if event.key == ord('3'): level = 2
+                    # if event.key == ord('4'): level = 3
+                    # if event.key == ord('5'): level = 4
 
                     if event.key == K_LEFT:  moveLeft = True;  moveRight = False
                     if event.key == K_RIGHT: moveLeft = False; moveRight = True
@@ -362,17 +363,22 @@ while True: # the program loop
             if appleCount >= LEVEL_UP[level]:
                 ch.queue(sounds['yoshi'])
                 appleCount = 0
-                if level < NUM_LEVELS:
-                    level += 1
+                level += 1
+                if level >= NUM_LEVELS:
+                    ch.queue(sounds['woah'])
+                    playing = False
+                    gameWon = True
 
         # -- end of event loop (still playing?) --
 
         # in case the music is still going
         pygame.mixer.music.stop()
 
-
+        # check end of game conditions
         if numberOfLives <= 0:
             ch = sounds['gameOver'].play()
+        elif gameWon:
+            break # don't subtract an egg
 
         # wait a bit...
         while ch.get_busy(): pass
@@ -402,10 +408,22 @@ while True: # the program loop
         f.write(str(highScore))
         f.close()
 
-    drawTextBox(['GAME OVER', '', highScoreText, '',
-                 'Press any key to play again...', '(\'q\' to quit)'],
-                 windowSurface, spacing=1)
+    if gameWon:
+        drawTextBox(['CONGRATULATIONS!!!', '',
+                     'You beat Yoshi vs. Monsters!',
+                     '',
+                     'Coming soon:',
+                     'Yoshi vs. Robots!',
+                     '', highScoreText, '',
+                     'Press any key to play again...', '(\'q\' to quit)'],
+                     windowSurface, spacing=1)
+    else:
+        drawTextBox(['GAME OVER', '', highScoreText, '',
+                     'Press any key to play again...', '(\'q\' to quit)'],
+                     windowSurface, spacing=1)
+
     pygame.display.update()
+    pygame.event.clear()
     waitForKeyPress()
 
     sounds['gameOver'].stop()
