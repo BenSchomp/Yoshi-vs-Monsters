@@ -8,33 +8,32 @@ HORIZON_HEIGHT = GAME_HEIGHT * 2/3
 
 ONE_SEC = 1000
 
-TEXT_COLOR = (255,255,255)
-SKY_COLOR = [(66,138,255), (255,120,0), (72,0,155), (28,0,63), (20,0,24)]
+TEXT_COLOR =    (255,255,255)
+SKY_COLOR =    [(66,138,255), (255,120,0), (72,0,155), (28,0,63), (20,0,24)]
 GROUND_COLOR = [(0,127,14), (0,89,14), (0,53,8), (0,33,4), (0,16,4)]
-SUN_COLOR = [(255,216,0), (255,216,0), (255,255,125), (255,255,125), (255,255,125)]
-SUN_LOC = [(550,150), (650,300), (-100,-100), (200,300), (300,200), (275,75)]
-STAR_LOCS = [[],[],
-             [(200,100), (300,250), (500,50)],
-             [(325,100), (600,150), (500,50)],
-             [(550,200), (675,75), (500,50)]]
+SUN_COLOR =    [(255,216,0), (255,216,0), (255,255,125), (255,255,125), (255,255,125)]
+SUN_LOC =      [(550,150), (650,300), (-100,-100), (200,300), (300,200), (275,75)]
+STAR_LOCS =    [[],[], [(200,100), (300,250), (500,50)],
+                       [(325,100), (600,150), (500,50)],
+                       [(550,200), (675,75), (500,50)]]
 
 FPS = 40
 MONSTER_MIN_SCALE = 6
 MONSTER_MIN_SPEED = 1
 MONSTER_MAX_SPEED = 5
 NUMBER_OF_MONSTERS = 5
-MAX_MONSTER_RATE = [110,90,70,50,30,10]
+MAX_MONSTER_RATE = [110,90,70,50,30,15]
 
 APPLE_TYPE = 0
 NUM_LEVELS = 5
-APPLE_POINTS = [200, 300, 500, 700, 1000]
+APPLE_POINTS = [200, 250, 300, 400, 500]
 LEVEL_UP_APPLES = [5,6,7,8,9]
-LEVEL_UP_BONUS = [1000, 2000, 4000, 6000, 10000]
+LEVEL_UP_BONUS = [500, 1000, 2000, 3500, 5000]
 FREE_GUY_POINTS = [25000, 75000]
 
-YOSHI_SPEED = 5 # maybe increase this slightly on harder levels?
+YOSHI_SPEED = 5
 MUSIC_VOL = 0.3
-SOUND_VOL = 0.9
+SOUND_VOL = 0.8
 
 # util functions
 def terminate():
@@ -226,11 +225,11 @@ while True: # the program loop
                     terminate()
 
                 if event.type == KEYDOWN:
-                    # if event.key == ord('1'): level = 0
-                    # if event.key == ord('2'): level = 1
-                    # if event.key == ord('3'): level = 2
-                    # if event.key == ord('4'): level = 3
-                    # if event.key == ord('5'): level = 4
+                    #if event.key == ord('1'): level = 0
+                    #if event.key == ord('2'): level = 1
+                    #if event.key == ord('3'): level = 2
+                    #if event.key == ord('4'): level = 3
+                    #if event.key == ord('5'): level = 4
 
                     if event.key == K_LEFT:  moveLeft = True;  moveRight = False
                     if event.key == K_RIGHT: moveLeft = False; moveRight = True
@@ -329,13 +328,6 @@ while True: # the program loop
                 eggRect = pygame.Rect((40*egg)+5, GAME_HEIGHT-40, 30, 36)
                 windowSurface.blit(eggImage, eggRect)
 
-            # draw appleCount
-            for apple in range (0, LEVEL_UP_APPLES[level]):
-                appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
-                                        GAME_HEIGHT-30, 25, 27)
-                windowSurface.blit(appleImage if apple < appleCount else
-                                   blankAppleImage, appleRect)
-
             # check if any monster has hit yoshi
             for m in monsters:
                 if yoshiRect.colliderect(m['rect']):
@@ -352,6 +344,13 @@ while True: # the program loop
                         numberOfLives -= 1
                         playing = False
                         break
+
+            # draw appleCount
+            for apple in range (0, LEVEL_UP_APPLES[level]):
+                appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
+                                        GAME_HEIGHT-30, 25, 27)
+                windowSurface.blit(appleImage if apple < appleCount else
+                                   blankAppleImage, appleRect)
 
             # update the screen
             pygame.display.update()
@@ -426,6 +425,7 @@ while True: # the program loop
                      windowSurface, spacing=1)
 
     pygame.display.update()
+    pygame.time.wait(ONE_SEC)
     pygame.event.clear()
     waitForKeyPress()
 
