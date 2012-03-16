@@ -9,7 +9,8 @@ A PyGame Space Invaders-type game featuring
 Yoshi from the Mario games and the monsters
 from Monsters, Inc.
 
-Requires the Pygame libraries -- http://www.pygame.org/download.shtml
+Requires the Pygame libraries:
+  + http://www.pygame.org/download.shtml
 
 Enjoy!
 
