@@ -12,5 +12,9 @@ from Monsters, Inc.
 Requires the Pygame libraries:
   + http://www.pygame.org/download.shtml
 
+Example:
+  $ python2 -m pip install pygame
+  $ python2 yoshi.py
+
 Enjoy!
 
