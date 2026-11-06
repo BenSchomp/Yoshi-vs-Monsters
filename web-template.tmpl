@@ -433,8 +433,8 @@ frameborder="1"
     // Touch controls. The page handles every touch itself, and the game reads
     // window.touchControls every frame (see TouchControls in yoshi.py).
     // The joystick stays in one spot: centered below the game with a third of it over the
-    // grass when the phone is upright. When it's sideways, the joystick starts in the grey strip
-    // on the right and moves to whichever side strip a finger last landed in, for left thumbs.
+    // grass when the phone is upright. When it's sideways, the joystick sits a third of the way up,
+    // starting in the grey strip on the right, and moves to whichever side strip a finger last landed in, for left thumbs.
     // A finger that lands on it steers Yoshi by dragging, in 8 directions including diagonals,
     // and keeps steering even if it slides off. Anywhere on screen, a quick tap works like
     // "any key" and two quick taps pause.
@@ -467,7 +467,7 @@ frameborder="1"
             joystickCenter.y = gameBox.bottom + JOYSTICK_RADIUS / 3
         } else {
             joystickCenter.x = sidewaysJoystickSide === "right" ? (gameBox.right + innerWidth) / 2 : gameBox.left / 2
-            joystickCenter.y = innerHeight - JOYSTICK_RADIUS - 16
+            joystickCenter.y = gameBox.bottom - gameBox.height / 3 // a third of the way up the game
         }
         joystickRing.style.left = joystickCenter.x + "px"
         joystickRing.style.top = joystickCenter.y + "px"
