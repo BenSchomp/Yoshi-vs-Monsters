@@ -59,7 +59,7 @@ async def waitForKeyPress():
                 return event.key
             if event.type == MOUSEBUTTONUP: # a click works like "any key"
                 return None
-        await asyncio.sleep(0) # let the browser draw and deliver key events
+        await asyncio.sleep(1 / FPS) # let the browser draw and deliver key events, without spinning the CPU
 
 # Pauses keep pumping window events. If a window stops reading events for a
 # few seconds, macOS shows the spinning beach ball (and the browser can stall).
@@ -145,12 +145,12 @@ muted = False
 soundEffectsOn = True
 soundEffectsOnBeforeMute = True
 
-def applyVolumes(silenceEverything=False):
+def applyVolumes():
     for s in sounds.values():
-        s.set_volume(SOUND_VOL if soundEffectsOn and not silenceEverything else 0)
-    pygame.mixer.music.set_volume(MUSIC_VOL if not muted and not silenceEverything else 0)
+        s.set_volume(SOUND_VOL if soundEffectsOn else 0)
+    pygame.mixer.music.set_volume(MUSIC_VOL if not muted else 0)
 
-def toggleMusicOrSoundsForKey(pressedKey, applyNow=True):
+def toggleMusicOrSoundsForKey(pressedKey):
     """Handles M and S. Returns True if the key was one of them."""
     global muted, soundEffectsOn, soundEffectsOnBeforeMute
     if pressedKey == ord('m'):
@@ -167,8 +167,7 @@ def toggleMusicOrSoundsForKey(pressedKey, applyNow=True):
             soundEffectsOnBeforeMute = soundEffectsOn
     else:
         return False
-    if applyNow:
-        applyVolumes()
+    applyVolumes()
     return True
 
 def onOff(isOn):
@@ -187,7 +186,10 @@ async def waitForKeyToContinue():
 async def showPauseMenu():
     """Esc pauses the game. The menu lists the keys and can toggle music and sounds."""
     gameScreenBehindMenu = windowSurface.copy()
-    applyVolumes(silenceEverything=True)
+    # Pause playback rather than turning the volume down: a sound cut off by a
+    # volume change mid-play could get stuck repeating in the browser.
+    pygame.mixer.pause()
+    pygame.mixer.music.pause()
     while True:
         menuLines = withQuitHint(['PAUSED', '',
                                   '-- Use the arrow keys to move --',
@@ -201,11 +203,12 @@ async def showPauseMenu():
         pressedKey = await waitForKeyPress()
         if pressedKey == ord('q'):
             terminate()
-        elif toggleMusicOrSoundsForKey(pressedKey, applyNow=False): # stay silent until resumed
+        elif toggleMusicOrSoundsForKey(pressedKey): # playback is paused, so this stays silent until resume
             pass
         elif pressedKey == K_ESCAPE:
             break
-    applyVolumes()
+    pygame.mixer.unpause()
+    pygame.mixer.music.unpause()
 
 
 ################################################################################
