@@ -1,1 +1,3 @@
 data/hiscore.dat
+.venv/
+build/

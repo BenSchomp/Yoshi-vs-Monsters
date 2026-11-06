@@ -1,0 +1,44 @@
+# Builds the browser version with pygbag and publishes it to GitHub Pages.
+# One-time setup: repo Settings > Pages > Source: "GitHub Actions".
+name: Deploy web version
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pygbag==0.9.3
+      # --ume_block 0 skips pygbag's "Ready to start" screen; the game's own title screen
+      # asks for the key press or click that browsers need before they allow sound.
+      # web-template.tmpl is pygbag 0.9.3's default page, customized (colors); keep it in step with the pinned version.
+      - run: python -m pygbag --build --ume_block 0 --template web-template.tmpl --title "Yoshi vs. Monsters" .
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

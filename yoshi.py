@@ -1,10 +1,10 @@
-import pygame, random, sys
+import asyncio, pygame, random, sys
 from pygame.locals import *
 
 # game constants
 GAME_WIDTH = 750
 GAME_HEIGHT = 600
-HORIZON_HEIGHT = GAME_HEIGHT * 2/3
+HORIZON_HEIGHT = GAME_HEIGHT * 2 // 3
 
 ONE_SEC = 1000
 
@@ -25,6 +25,9 @@ NUMBER_OF_MONSTERS = 5
 MAX_MONSTER_RATE = [110,90,70,50,30,15]
 
 APPLE_TYPE = 0
+# Each drop is a random pick of the 5 types (so ~1 in 5 is an apple), except:
+# never two apples in a row, and if no apple has dropped for this long, the next drop is one.
+MAX_SECONDS_WITHOUT_APPLE = 20
 NUM_LEVELS = 5
 APPLE_POINTS = [200, 250, 300, 400, 500]
 LEVEL_UP_APPLES = [5,6,7,8,9]
@@ -35,20 +38,70 @@ YOSHI_SPEED = 5
 MUSIC_VOL = 0.3
 SOUND_VOL = 0.8
 
+# web port: a browser tab can't be "quit", so quitting only works on desktop
+RUNNING_IN_BROWSER = sys.platform == 'emscripten'
+if RUNNING_IN_BROWSER:
+    import platform # pygbag's bridge to the web page
+HIGH_SCORE_STORAGE_KEY = 'yoshi-vs-monsters-hiscore'
+
 # util functions
 def terminate():
+    if RUNNING_IN_BROWSER:
+        return
     pygame.quit()
     sys.exit()
 
-def waitForKeyPress():
+async def waitForKeyPress():
+    """Waits for a key to be released and returns which key it was,
+    or None for a click or a tap (and then touchControls.lastTapPosition says where)."""
+    touchControls.takeNewTaps() # forget taps from before this wait started
+    touchControls.showJoystick(False) # every wait for a key is a menu or message screen
     while True:
+        if any(touchControls.takeNewTaps()):
+            return None
         for event in pygame.event.get():
             if event.type == QUIT:
                 terminate()
             if event.type == KEYUP:
-                if event.key == K_ESCAPE: # pressing esc quits
-                    terminate()
-                return
+                return event.key
+            if event.type == MOUSEBUTTONUP: # a click works like "any key"
+                touchControls.lastTapPosition = event.pos
+                return None
+        pygame.display.update() # keep the screen drawn even if the browser resized the canvas
+        await asyncio.sleep(1 / FPS) # let the browser draw and deliver key events, without spinning the CPU
+
+# Pauses keep pumping window events. If a window stops reading events for a
+# few seconds, macOS shows the spinning beach ball (and the browser can stall).
+async def waitWhileSoundPlays(channel):
+    while channel is not None and channel.get_busy():
+        pygame.event.pump()
+        await asyncio.sleep(0.05)
+
+async def pauseWithoutFreezing(milliseconds):
+    pauseEndsAt = pygame.time.get_ticks() + milliseconds
+    while pygame.time.get_ticks() < pauseEndsAt:
+        pygame.event.pump()
+        await asyncio.sleep(0.05)
+
+def loadHighScore():
+    try:
+        if RUNNING_IN_BROWSER:
+            import platform
+            storedScore = platform.window.localStorage.getItem(HIGH_SCORE_STORAGE_KEY)
+            return int(storedScore) if storedScore else 0
+        with open('data/hiscore.dat', 'r') as f:
+            x = f.readline()
+            return int(x) if x.isdigit() else 0
+    except (IOError, ValueError):
+        return 0
+
+def saveHighScore(highScore):
+    if RUNNING_IN_BROWSER:
+        import platform
+        platform.window.localStorage.setItem(HIGH_SCORE_STORAGE_KEY, str(highScore))
+        return
+    with open('data/hiscore.dat', 'w') as f:
+        f.write(str(highScore))
             
 def drawText(text, font, surface, x, y):
     textobj = font.render(text, 1, TEXT_COLOR)
@@ -56,21 +109,32 @@ def drawText(text, font, surface, x, y):
     textrect.topleft = (x, y)
     surface.blit(textobj, textrect)
 
+class Button:
+    """A text box line drawn as a big outlined button that a finger can tap (see drawTextBox)."""
+    WIDTH = 320
+    HEIGHT = 54
+    GAP = 12
+
+    def __init__(self, label):
+        self.label = label
+
 def drawTextBox(text, parent, spacing=2):
-    textobjs = []
-    boxwidth, boxheight = 0, 0
-    linesize = font.get_linesize() # recommended line height
+    """Each line is a string (drawn in `font`), a (string, font) pair for a different size,
+    or a Button. Returns {button label: its rectangle on `parent`} for tapping."""
+    rows = [] # (rendered text, row height, height after the last row, is a button)
+    for line in text:
+        if isinstance(line, Button):
+            rows.append((font.render(line.label, 1, TEXT_COLOR), Button.HEIGHT + Button.GAP, Button.HEIGHT, True))
+        else:
+            lineText, lineFont = line if isinstance(line, tuple) else (line, font)
+            linesize = lineFont.get_linesize()
+            rows.append((lineFont.render(lineText, 1, TEXT_COLOR), linesize * spacing, linesize, False))
     padding = 40
 
-    for line in text:
-        textobjs.append(font.render(line, 1, TEXT_COLOR)) # render line
-        textwidth, textheight = font.size(line) # height is ignored
-
-        if textwidth > boxwidth:
-            boxwidth = textwidth # maintain width of longest line
-
-    numlines = len(text) # number of lines to render = n + (n - 1)(s - 1)
-    boxheight = linesize * (numlines * spacing - spacing + 1)
+    # each row takes its height, except the last, which skips the spacing after it
+    hasButtons = any(isButton for _, _, _, isButton in rows)
+    boxwidth = max([rendered.get_width() for rendered, _, _, _ in rows] + [Button.WIDTH if hasButtons else 0])
+    boxheight = sum(rowHeight for _, rowHeight, _, _ in rows[:-1]) + rows[-1][2]
 
     # add margins
     boxwidth += padding
@@ -78,39 +142,206 @@ def drawTextBox(text, parent, spacing=2):
 
     # center textbox rectangle on parent
     textboxRect = pygame.Rect(0,0,boxwidth,boxheight)
-    textboxRect.center = (parent.get_width() / 2, parent.get_height() / 3)
+    # sit a third of the way down, or lower if the box is too tall to fit there
+    textboxRect.center = (parent.get_width() / 2, max(parent.get_height() / 3, boxheight / 2))
 
     # create textbox subsurface
     textbox = parent.subsurface(textboxRect)
     textbox.fill((0,0,0))
     pygame.draw.rect(parent, TEXT_COLOR, textboxRect, 2)
 
-    # blit each textobj on the textbox surface
+    # blit each line on the textbox surface, outlining buttons
+    buttonRects = {}
     y = padding / 2
-    for t in textobjs:
-        textrect = t.get_rect()
-        textrect.center = (boxwidth / 2, y + (linesize / 2))
-        textbox.blit(t, textrect)
-        y += linesize * spacing
+    for (rendered, rowHeight, lastRowHeight, isButton), line in zip(rows, text):
+        textrect = rendered.get_rect()
+        textrect.center = (boxwidth / 2, y + lastRowHeight / 2)
+        textbox.blit(rendered, textrect)
+        if isButton:
+            buttonRect = pygame.Rect(0, 0, Button.WIDTH, Button.HEIGHT)
+            buttonRect.center = textrect.center
+            pygame.draw.rect(textbox, TEXT_COLOR, buttonRect, 2, border_radius=10)
+            buttonRects[line.label] = buttonRect.move(textboxRect.topleft)
+        y += rowHeight
+    return buttonRects
 
-def toggleMute(mute):
-    mute = not mute
-    if mute:
-        for key,s in sounds.items():
-            s.set_volume(0)
-        pygame.mixer.music.set_volume(0)
+def tappedButton(buttonRects):
+    """Which button label the last tap or click landed on, or None."""
+    for label, buttonRect in buttonRects.items():
+        if buttonRect.collidepoint(touchControls.lastTapPosition):
+            return label
+    return None
+
+# M is "mute": it silences everything, and a second M brings back the music
+# and whatever the sound effects were before muting.
+# S flips the sound effects on or off, muted or not (so M then S = sound effects only).
+# Music plays whenever the game isn't muted.
+muted = False
+soundEffectsOn = True
+soundEffectsOnBeforeMute = True
+
+def applyVolumes():
+    for s in sounds.values():
+        s.set_volume(SOUND_VOL if soundEffectsOn else 0)
+    pygame.mixer.music.set_volume(MUSIC_VOL if not muted else 0)
+
+def toggleMusicOrSoundsForKey(pressedKey):
+    """Handles M and S. Returns True if the key was one of them."""
+    global muted, soundEffectsOn, soundEffectsOnBeforeMute
+    if pressedKey == ord('m'):
+        if muted:
+            muted = False
+            soundEffectsOn = soundEffectsOnBeforeMute
+        else:
+            muted = True
+            soundEffectsOnBeforeMute = soundEffectsOn
+            soundEffectsOn = False
+    elif pressedKey == ord('s'):
+        soundEffectsOn = not soundEffectsOn
+        if muted: # remember a choice made while muted for when M unmutes
+            soundEffectsOnBeforeMute = soundEffectsOn
     else:
-        for key,s in sounds.items():
-            s.set_volume(SOUND_VOL)
-        pygame.mixer.music.set_volume(MUSIC_VOL)
+        return False
+    applyVolumes()
+    return True
 
-    return mute
+def onOff(isOn):
+    return 'ON' if isOn else 'OFF'
+
+def withQuitHint(lines):
+    """The quit option only exists on desktop; a browser tab can't quit."""
+    return lines if RUNNING_IN_BROWSER else lines + ['', '[q] quit']
+
+async def waitForKeyToContinue():
+    """Title and game-over screens: Q quits (desktop only), any other key continues."""
+    pressedKey = await waitForKeyPress()
+    if pressedKey == ord('q'):
+        terminate()
+
+PAUSE_KEYS = (K_ESCAPE, K_SPACE) # either one pauses, and either one resumes
+
+class TouchControls:
+    """Reads the phone touch controls. The web page runs them (see touchControls in
+    web-template.tmpl): dragging from wherever a finger lands steers Yoshi (shown on a
+    joystick fixed in the grey space below the game), a quick tap anywhere works like
+    "any key", and two quick taps pause.
+    On desktop there are none."""
+
+    def __init__(self):
+        self.tapsSeen = 0
+        self.doubleTapsSeen = 0
+        self.joystickVisible = False
+        self.lastTapPosition = (-1, -1) # in game pixels; also set by mouse clicks
+
+    def isTouchScreen(self):
+        """True on phones and tablets, where the screens talk about the joystick and taps."""
+        return RUNNING_IN_BROWSER and bool(platform.window.touchControls.isTouchScreen)
+
+    def showJoystick(self, visible):
+        """Shows the joystick during play and hides it on the title, pause and game over screens."""
+        if RUNNING_IN_BROWSER and visible != self.joystickVisible:
+            platform.window.setJoystickVisible(visible)
+        self.joystickVisible = visible
+
+    def directions(self):
+        """Returns (left, right, up, down) for the joystick right now."""
+        if not RUNNING_IN_BROWSER:
+            return False, False, False, False
+        controls = platform.window.touchControls
+        return bool(controls.left), bool(controls.right), bool(controls.up), bool(controls.down)
+
+    def takeNewTaps(self):
+        """Returns how many (taps, double taps) happened since the last call."""
+        if not RUNNING_IN_BROWSER:
+            return 0, 0
+        controls = platform.window.touchControls
+        taps, doubleTaps = int(controls.taps), int(controls.doubleTaps)
+        newTaps, newDoubleTaps = taps - self.tapsSeen, doubleTaps - self.doubleTapsSeen
+        self.tapsSeen, self.doubleTapsSeen = taps, doubleTaps
+        if newTaps or newDoubleTaps:
+            self.lastTapPosition = (float(controls.lastTapX), float(controls.lastTapY))
+        return newTaps, newDoubleTaps
+
+touchControls = TouchControls()
+
+async def confirmRestart(gameScreenBehindMenu):
+    """Returns True if the player confirms with Y (or the Yes button); N, Esc or No cancels."""
+    windowSurface.blit(gameScreenBehindMenu, (0, 0))
+    if touchControls.isTouchScreen():
+        choices = [Button('Yes'), Button('No')]
+    else:
+        choices = ['[y] Yes   /   [n] No']
+    buttonRects = drawTextBox(['Are you sure?', 'All progress will be lost.', ''] + choices,
+                              windowSurface, spacing=1)
+    pygame.display.update()
+    while True:
+        pressedKey = await waitForKeyPress()
+        button = tappedButton(buttonRects) if pressedKey is None else None
+        if pressedKey == ord('y') or button == 'Yes':
+            return True
+        if pressedKey in (ord('n'), K_ESCAPE) or button == 'No':
+            return False
+
+async def showPauseMenu():
+    """Esc or space pauses the game. The menu lists the keys, can toggle music and
+    sounds, and can restart. Returns True if the player chose to restart."""
+    restartRequested = False
+    gameScreenBehindMenu = windowSurface.copy()
+    # Pause playback rather than turning the volume down: a sound cut off by a
+    # volume change mid-play could get stuck repeating in the browser.
+    pygame.mixer.pause()
+    pygame.mixer.music.pause()
+    while True:
+        if touchControls.isTouchScreen():
+            menuLines = ['PAUSED', '',
+                         Button('Mute: ' + onOff(muted)),
+                         Button('Sound effects: ' + onOff(soundEffectsOn)),
+                         Button('Restart'),
+                         '',
+                         'Tap anywhere else to resume']
+        else:
+            menuLines = withQuitHint(['PAUSED', '',
+                                      '-- Use the arrow keys to move --',
+                                      '[m] mute: ' + onOff(muted),
+                                      '[s] sound effects: ' + onOff(soundEffectsOn),
+                                      '[r] restart',
+                                      '[esc], [space] or click: resume'])
+        windowSurface.blit(gameScreenBehindMenu, (0, 0))
+        buttonRects = drawTextBox(menuLines, windowSurface, spacing=1)
+        pygame.display.update()
+
+        pressedKey = await waitForKeyPress()
+        if pressedKey is None: # a tap or click: buttons work like their keys
+            button = tappedButton(buttonRects) or ''
+            pressedKey = (ord('m') if button.startswith('Mute') else
+                          ord('s') if button.startswith('Sound effects') else
+                          ord('r') if button == 'Restart' else None)
+        if pressedKey == ord('q'):
+            terminate()
+        elif toggleMusicOrSoundsForKey(pressedKey): # playback is paused, so this stays silent until resume
+            pass
+        elif pressedKey == ord('r'):
+            if await confirmRestart(gameScreenBehindMenu):
+                restartRequested = True
+                break
+        elif pressedKey in PAUSE_KEYS or pressedKey is None: # None is a tap or click
+            break
+    pygame.mixer.unpause()
+    pygame.mixer.music.unpause()
+    if restartRequested:
+        pygame.mixer.stop() # drop whatever sound effects were mid-play
+    return restartRequested
 
 
 ################################################################################
 
 
 # setup pygame, the window, and mouse cursor
+# Browser audio runs on the same thread as the game, so the default small mixer
+# buffer runs dry between frames and crackles. A bigger buffer smooths it out
+# (sound effects start ~90ms later, which isn't noticeable here).
+if RUNNING_IN_BROWSER:
+    pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=4096)
 pygame.init()
 mainClock = pygame.time.Clock()
 windowSurface = pygame.display.set_mode((GAME_WIDTH, GAME_HEIGHT))
@@ -121,19 +352,20 @@ pygame.mouse.set_visible(False)
 # setup fonts
 font = pygame.font.SysFont(None, 36)
 font_small = pygame.font.SysFont(None, 24)
+font_original_version_line = pygame.font.SysFont(None, 30) # slightly smaller, for the v0.4 credit
 
-# setup sounds & music
+# setup sounds & music (OGG, because browsers can't play WAV reliably or MIDI at all)
 # source -- http://www.mfgg.net/index.php?act=resdb&param=03&c=5&id=24121
-sounds = {'gameOver': pygame.mixer.Sound('data/gameover.wav'),
-          'yoshi':    pygame.mixer.Sound('data/yoshiii.wav'),
-          'owow':     pygame.mixer.Sound('data/owow.wav'),
-          'tongue':   pygame.mixer.Sound('data/tongue.wav'),
-          'appleX':   pygame.mixer.Sound('data/apple_loss.wav'),
-          'eggX':     pygame.mixer.Sound('data/egg_loss.wav'),
-          'ba-ding':  pygame.mixer.Sound('data/ba-ding.wav'),
-          'woah':     pygame.mixer.Sound('data/woah.wav'), }
-pygame.mixer.music.load('data/confutatis.mid')
-mute = toggleMute(True)
+sounds = {'gameOver': pygame.mixer.Sound('data/gameover.ogg'),
+          'yoshi':    pygame.mixer.Sound('data/yoshiii.ogg'),
+          'owow':     pygame.mixer.Sound('data/owow.ogg'),
+          'tongue':   pygame.mixer.Sound('data/tongue.ogg'),
+          'appleX':   pygame.mixer.Sound('data/apple_loss.ogg'),
+          'eggX':     pygame.mixer.Sound('data/egg_loss.ogg'),
+          'ba-ding':  pygame.mixer.Sound('data/ba-ding.ogg'),
+          'woah':     pygame.mixer.Sound('data/woah.ogg'), }
+pygame.mixer.music.load('data/confutatis.ogg')
+applyVolumes()
 
 # setup images
 yoshiImage = pygame.image.load('data/yoshi.png')
@@ -157,280 +389,311 @@ for mi in monsterImages:
 monsterSizes = [[40,43], # apple1.png
                 [68,63], [70,73], [51,58], [53,76]]
 
-# draw welcome screen
-windowSurface.fill(SKY_COLOR[0])
-drawTextBox(['Yoshi vs. Monsters!!!',
-             '',
-             'Avoid the Monsters, eat the Apples.',
-             '',
-             '-- Use the arrow keys to move --',
-             '[q]uit : [p]ause : [m]ute',
-             '',
-             'PRESS ANY KEY TO START',
-             '',
-             'v0.4 March 29, 2011',
-             'by Elsie, Charlie & Ben Schomp',
-             ], windowSurface, spacing=1)
-pygame.display.update()
-waitForKeyPress()
+async def main():
+    global facingLeft, yoshiImage
+    ch = None # sound channel of the most recent effect
+    # draw welcome screen
+    windowSurface.fill(SKY_COLOR[0])
+    if touchControls.isTouchScreen():
+        howToPlay = ['-- Drag the joystick to move --',
+                     'Double-tap to pause',
+                     '',
+                     'TAP TO START']
+    else:
+        howToPlay = ['-- Use the arrow keys to move --',
+                     '[esc]/[space] pause : [m]ute : [s]ounds',
+                     '',
+                     'PRESS ANY KEY OR CLICK TO START']
+    drawTextBox(withQuitHint(['Yoshi vs. Monsters!!!',
+                 '',
+                 'Avoid the Monsters, eat the Apples.',
+                 ''] + howToPlay + [
+                 '',
+                 ('v0.4 March 29, 2011', font_original_version_line),
+                 'v0.5 November 6, 2026',
+                 'by Elsie, Charlie & Ben Schomp']), windowSurface, spacing=1)
+    pygame.display.update()
+    await waitForKeyToContinue()
 
-# load high score
-highScore = 0
-try:
-    f = open('data/hiscore.dat', 'r')
-    try:
-        x = f.readline()
-        if x.isdigit():
-            highScore = int(x)
-    finally:
-        f.close()
+    # load high score
+    highScore = loadHighScore()
 
-except IOError:
-    pass # print 'File not found!'
+    while True: # the program loop
+        # a new game!
+        score = 0
+        level = 0
+        appleCount = 0
+        numberOfLives = 3
+        gameWon = False
+        restartRequested = False
+        highScoreText = ''
 
-while True: # the program loop
-    # a new game!
-    score = 0
-    level = 0
-    appleCount = 0
-    numberOfLives = 3
-    gameWon = False
-    highScoreText = ''
+        sounds['yoshi'].play()
+        while numberOfLives > 0 and not gameWon: # the game loop
+            # still alive!
 
-    sounds['yoshi'].play()
-    while numberOfLives > 0 and not gameWon: # the game loop
-        # still alive!
+            appleCount = 0 # reset the apples (maybe halve this on death?)
+            pygame.mixer.music.play(-1,0.0) # start the music
 
-        appleCount = 0 # reset the apples (maybe halve this on death?)
-        pygame.mixer.music.play(-1,0.0) # start the music
+            # reset monsters
+            monsters = []
+            previousDropWasApple = False
+            framesSinceLastApple = 0
+            newMonsterRate = MAX_MONSTER_RATE[level]
+            monsterAddCounter = MAX_MONSTER_RATE[level] * 3 // 4
 
-        # reset monsters
-        monsters = []
-        newMonsterRate = MAX_MONSTER_RATE[level]
-        monsterAddCounter = MAX_MONSTER_RATE[level] * (3/4)
+            # reset yoshi
+            yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
+            moveLeft = moveRight = moveUp = moveDown = False
+            if facingLeft:
+                yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
+                facingLeft = False
 
-        # reset yoshi
-        yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
-        moveLeft = moveRight = moveUp = moveDown = False
-        if facingLeft:
-            yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
-            facingLeft = False
+            playing = True
+            while playing: # the event loop
 
-        playing = True
-        while playing: # the event loop
-
-            # process events
-            for event in pygame.event.get():
-                if event.type == QUIT:
-                    terminate()
-
-                if event.type == KEYDOWN:
-                    #if event.key == ord('1'): level = 0
-                    #if event.key == ord('2'): level = 1
-                    #if event.key == ord('3'): level = 2
-                    #if event.key == ord('4'): level = 3
-                    #if event.key == ord('5'): level = 4
-
-                    if event.key == K_LEFT:  moveLeft = True;  moveRight = False
-                    if event.key == K_RIGHT: moveLeft = False; moveRight = True
-                    if event.key == K_UP:    moveDown = False; moveUp = True
-                    if event.key == K_DOWN:  moveDown = True;  moveUp = False
-
-                if event.type == KEYUP:
-                    if event.key == K_LEFT:  moveLeft = False
-                    if event.key == K_RIGHT: moveRight = False
-                    if event.key == K_UP:    moveUp = False
-                    if event.key == K_DOWN:  moveDown = False
-
-                    if event.key == ord('m'): mute = toggleMute(mute)
-                    if event.key == ord('p'):
-                        toggleMute(False)
-                        drawTextBox(['PAUSED', 'Press any key to continue...'],
-                                    windowSurface)
-                        pygame.display.update()
-                        waitForKeyPress()
-                        if not mute:
-                            toggleMute(True)
-                    if event.key == K_ESCAPE or event.key == ord('q'):
+                # process events
+                touchControls.showJoystick(True)
+                newTaps, newDoubleTaps = touchControls.takeNewTaps()
+                if newDoubleTaps:
+                    pygame.event.post(pygame.event.Event(KEYUP, key=K_ESCAPE)) # a double tap pauses, like Esc
+                for event in pygame.event.get():
+                    if event.type == QUIT:
                         terminate()
-                        
-            # end event processing
 
-            # add a new monster?
-            monsterAddCounter += 1
-            if monsterAddCounter >= newMonsterRate:
-                monsterAddCounter = 0
-                if newMonsterRate > MAX_MONSTER_RATE[level+1]:
-                    newMonsterRate -= 1
+                    if event.type == KEYDOWN:
+                        #if event.key == ord('1'): level = 0
+                        #if event.key == ord('2'): level = 1
+                        #if event.key == ord('3'): level = 2
+                        #if event.key == ord('4'): level = 3
+                        #if event.key == ord('5'): level = 4
 
-                monsterScale = (random.randint (MONSTER_MIN_SCALE,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
-                monsterType = random.randint(0,NUMBER_OF_MONSTERS-1)
-                monsterWidth = int(monsterSizes[monsterType][0] * monsterScale)
-                monsterHeight = int(monsterSizes[monsterType][1] * monsterScale)
-                newMonster = {'rect': pygame.Rect(random.randint(0, GAME_WIDTH-monsterWidth),0, monsterWidth, monsterHeight),
-                              'speed': random.randint(MONSTER_MIN_SPEED+level, MONSTER_MAX_SPEED+level),
-                              'surface': pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight)),
-                              'type': monsterType,
-                              }
-                monsters.append(newMonster)
-                # debug: print 'New Monster, Type %d: [%d, %d] * %f = [%d, %d]' % (monsterType, monsterSizes[monsterType][0], monsterSizes[monsterType][1], monsterScale, monsterWidth, monsterHeight)
-                
-            # move yoshi around
-            if moveLeft and yoshiRect.left > 0:
-                yoshiRect.move_ip(-1 * YOSHI_SPEED, 0)
-                if not facingLeft:
-                    yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
-                    facingLeft = True
-            if moveRight and yoshiRect.right < GAME_WIDTH:
-                yoshiRect.move_ip(YOSHI_SPEED, 0)
-                if facingLeft:
-                    yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
-                    facingLeft = False
-            if moveUp and yoshiRect.bottom > HORIZON_HEIGHT + 30:
-                yoshiRect.move_ip(0, -1 * YOSHI_SPEED)
-            if moveDown and yoshiRect.bottom < GAME_HEIGHT - 42:
-                yoshiRect.move_ip(0, YOSHI_SPEED)
+                        if event.key == K_LEFT:  moveLeft = True;  moveRight = False
+                        if event.key == K_RIGHT: moveLeft = False; moveRight = True
+                        if event.key == K_UP:    moveDown = False; moveUp = True
+                        if event.key == K_DOWN:  moveDown = True;  moveUp = False
 
-            # move monsters down
-            for m in monsters:
-                m['rect'].move_ip(0, m['speed'])
-                if m['rect'].top > GAME_HEIGHT:
-                    monsters.remove(m)
-                    if m['type'] == APPLE_TYPE and appleCount > 0:
-                        sounds['appleX'].play()
-                        appleCount -= 1
-                 
-            # draw the game world on the window
-            windowSurface.fill(SKY_COLOR[level])
-            pygame.draw.circle(windowSurface, SUN_COLOR[level], SUN_LOC[level], 60)
-            if level >= 2:
-                for s in STAR_LOCS[level]:
-                    pygame.draw.circle(windowSurface, SUN_COLOR[level], s, 3)
-            pygame.draw.rect(windowSurface, GROUND_COLOR[level],
-                             pygame.Rect(0,HORIZON_HEIGHT,
-                                         GAME_WIDTH,HORIZON_HEIGHT))
+                    if event.type == KEYUP:
+                        if event.key == K_LEFT:  moveLeft = False
+                        if event.key == K_RIGHT: moveRight = False
+                        if event.key == K_UP:    moveUp = False
+                        if event.key == K_DOWN:  moveDown = False
 
-            # draw scores
-            drawText('Score: %s' % (score), font, windowSurface, 10, 2)
-            drawText('Level: %s' % (level+1), font, windowSurface, 650, 2)
-            drawText('High Score: %s' % (highScore), font_small, windowSurface, 300, 5)
-            # debug drawText('newMonsterRate: %s' % (newMonsterRate), font_small, windowSurface, 200, GAME_HEIGHT-30)
+                        toggleMusicOrSoundsForKey(event.key)
+                    if event.type == KEYUP and event.key in PAUSE_KEYS:
+                        restartRequested = await showPauseMenu()
+                        if restartRequested:
+                            playing = False
+                        moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
 
-            # draw yoshi
-            windowSurface.blit(yoshiImage, yoshiRect)
+                # end event processing
 
-            # draw each monster
-            for m in monsters:
-                windowSurface.blit(m['surface'], m['rect'])
+                # add a new monster?
+                monsterAddCounter += 1
+                framesSinceLastApple += 1
+                if monsterAddCounter >= newMonsterRate:
+                    monsterAddCounter = 0
+                    if newMonsterRate > MAX_MONSTER_RATE[level+1]:
+                        newMonsterRate -= 1
 
-            # draw life eggs
-            for egg in range (0, numberOfLives):
-                eggRect = pygame.Rect((40*egg)+5, GAME_HEIGHT-40, 30, 36)
-                windowSurface.blit(eggImage, eggRect)
-
-            # check if any monster has hit yoshi
-            for m in monsters:
-                if yoshiRect.colliderect(m['rect']):
-                    if m['type'] == APPLE_TYPE:
-                        ch = sounds['tongue'].play()
-                        score += APPLE_POINTS[level]
-                        appleCount += 1
-                        # +500 animation? #drawText('+%d' % (APPLE_POINTS), font_small, m['surface'], m['rect'].x, m['rect'].y)
-                        monsters.remove(m)
+                    monsterScale = (random.randint (MONSTER_MIN_SCALE,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
+                    if previousDropWasApple:
+                        monsterType = random.randint(1, NUMBER_OF_MONSTERS-1) # any non-apple
+                    elif framesSinceLastApple >= MAX_SECONDS_WITHOUT_APPLE * FPS:
+                        monsterType = APPLE_TYPE
                     else:
-                        # monster collision
-                        pygame.mixer.music.stop()
-                        ch = sounds['owow'].play()
-                        numberOfLives -= 1
+                        monsterType = random.randint(0, NUMBER_OF_MONSTERS-1)
+                    previousDropWasApple = monsterType == APPLE_TYPE
+                    if previousDropWasApple:
+                        framesSinceLastApple = 0
+                    monsterWidth = int(monsterSizes[monsterType][0] * monsterScale)
+                    monsterHeight = int(monsterSizes[monsterType][1] * monsterScale)
+                    monsterSurface = pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight))
+                    newMonster = {'rect': pygame.Rect(random.randint(0, GAME_WIDTH-monsterWidth),0, monsterWidth, monsterHeight),
+                                  'speed': random.randint(MONSTER_MIN_SPEED+level, MONSTER_MAX_SPEED+level),
+                                  'surface': monsterSurface,
+                                  'mask': pygame.mask.from_surface(monsterSurface), # opaque pixels only, for collisions
+                                  'type': monsterType,
+                                  }
+                    monsters.append(newMonster)
+                    # debug: print 'New Monster, Type %d: [%d, %d] * %f = [%d, %d]' % (monsterType, monsterSizes[monsterType][0], monsterSizes[monsterType][1], monsterScale, monsterWidth, monsterHeight)
+
+                # move yoshi around, with the arrow keys or the touch joystick
+                joystickLeft, joystickRight, joystickUp, joystickDown = touchControls.directions()
+                if (moveLeft or joystickLeft) and yoshiRect.left > 0:
+                    yoshiRect.move_ip(-1 * YOSHI_SPEED, 0)
+                    if not facingLeft:
+                        yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
+                        facingLeft = True
+                if (moveRight or joystickRight) and yoshiRect.right < GAME_WIDTH:
+                    yoshiRect.move_ip(YOSHI_SPEED, 0)
+                    if facingLeft:
+                        yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
+                        facingLeft = False
+                if (moveUp or joystickUp) and yoshiRect.bottom > HORIZON_HEIGHT + 30:
+                    yoshiRect.move_ip(0, -1 * YOSHI_SPEED)
+                if (moveDown or joystickDown) and yoshiRect.bottom < GAME_HEIGHT - 42:
+                    yoshiRect.move_ip(0, YOSHI_SPEED)
+
+                # move monsters down
+                for m in monsters:
+                    m['rect'].move_ip(0, m['speed'])
+                    if m['rect'].top > GAME_HEIGHT:
+                        monsters.remove(m)
+                        if m['type'] == APPLE_TYPE and appleCount > 0:
+                            sounds['appleX'].play()
+                            appleCount -= 1
+
+                # draw the game world on the window
+                windowSurface.fill(SKY_COLOR[level])
+                pygame.draw.circle(windowSurface, SUN_COLOR[level], SUN_LOC[level], 60)
+                if level >= 2:
+                    for s in STAR_LOCS[level]:
+                        pygame.draw.circle(windowSurface, SUN_COLOR[level], s, 3)
+                pygame.draw.rect(windowSurface, GROUND_COLOR[level],
+                                 pygame.Rect(0,HORIZON_HEIGHT,
+                                             GAME_WIDTH,HORIZON_HEIGHT))
+
+                # draw scores
+                drawText('Score: %s' % (score), font, windowSurface, 10, 2)
+                drawText('Level: %s' % (level+1), font, windowSurface, 650, 2)
+                drawText('High Score: %s' % (highScore), font_small, windowSurface, 300, 5)
+                # debug drawText('newMonsterRate: %s' % (newMonsterRate), font_small, windowSurface, 200, GAME_HEIGHT-30)
+
+                # draw yoshi
+                windowSurface.blit(yoshiImage, yoshiRect)
+
+                # draw each monster
+                for m in monsters:
+                    windowSurface.blit(m['surface'], m['rect'])
+
+                # draw life eggs
+                for egg in range (0, numberOfLives):
+                    eggRect = pygame.Rect((40*egg)+5, GAME_HEIGHT-40, 30, 36)
+                    windowSurface.blit(eggImage, eggRect)
+
+                # check if any monster has hit yoshi
+                # Monsters only count when their visible pixels overlap Yoshi's, not just
+                # their rectangles (which include transparent corners). Apples stay
+                # rectangle-based so they're easy to catch.
+                yoshiMask = pygame.mask.from_surface(yoshiImage)
+                for m in monsters:
+                    if not yoshiRect.colliderect(m['rect']):
+                        continue
+                    offsetFromYoshi = (m['rect'].x - yoshiRect.x, m['rect'].y - yoshiRect.y)
+                    if m['type'] == APPLE_TYPE or yoshiMask.overlap(m['mask'], offsetFromYoshi):
+                        if m['type'] == APPLE_TYPE:
+                            ch = sounds['tongue'].play()
+                            score += APPLE_POINTS[level]
+                            appleCount += 1
+                            # +500 animation? #drawText('+%d' % (APPLE_POINTS), font_small, m['surface'], m['rect'].x, m['rect'].y)
+                            monsters.remove(m)
+                        else:
+                            # monster collision
+                            pygame.mixer.music.stop()
+                            ch = sounds['owow'].play()
+                            numberOfLives -= 1
+                            playing = False
+                            break
+
+                # draw appleCount
+                for apple in range (0, LEVEL_UP_APPLES[level]):
+                    appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
+                                            GAME_HEIGHT-30, 25, 27)
+                    windowSurface.blit(appleImage if apple < appleCount else
+                                       blankAppleImage, appleRect)
+
+                # update the screen
+                pygame.display.update()
+                mainClock.tick(FPS)
+                await asyncio.sleep(0) # hand control back to the browser each frame
+                score += 1
+                if FREE_GUY_POINTS and score > FREE_GUY_POINTS[0]:
+                    FREE_GUY_POINTS.pop(0)
+                    numberOfLives += 1
+                    sounds['ba-ding'].play()
+
+                if appleCount >= LEVEL_UP_APPLES[level]:
+                    if ch: ch.queue(sounds['yoshi'])
+                    appleCount = 0
+                    score += LEVEL_UP_BONUS[level]
+                    level += 1
+                    if level >= NUM_LEVELS:
+                        if ch: ch.queue(sounds['woah'])
                         playing = False
-                        break
+                        gameWon = True
 
-            # draw appleCount
-            for apple in range (0, LEVEL_UP_APPLES[level]):
-                appleRect = pygame.Rect(GAME_WIDTH-30-(30*apple),
-                                        GAME_HEIGHT-30, 25, 27)
-                windowSurface.blit(appleImage if apple < appleCount else
-                                   blankAppleImage, appleRect)
+            # -- end of event loop (still playing?) --
 
-            # update the screen
-            pygame.display.update()
-            mainClock.tick(FPS)
-            score += 1
-            if FREE_GUY_POINTS and score > FREE_GUY_POINTS[0]:
-                FREE_GUY_POINTS.pop(0)
-                numberOfLives += 1
-                sounds['ba-ding'].play()
+            if restartRequested:
+                break # skip the lost-life sequence
 
-            if appleCount >= LEVEL_UP_APPLES[level]:
-                ch.queue(sounds['yoshi'])
-                appleCount = 0
-                score += LEVEL_UP_BONUS[level]
-                level += 1
-                if level >= NUM_LEVELS:
-                    ch.queue(sounds['woah'])
-                    playing = False
-                    gameWon = True
+            # in case the music is still going
+            pygame.mixer.music.stop()
 
-        # -- end of event loop (still playing?) --
+            # check end of game conditions
+            if numberOfLives <= 0:
+                ch = sounds['gameOver'].play()
+            elif gameWon:
+                break # don't subtract an egg
 
-        # in case the music is still going
+            # wait a bit...
+            await waitWhileSoundPlays(ch)
+            await pauseWithoutFreezing(ONE_SEC)
+
+            # erase egg + sound effect
+            pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
+            ch = sounds['eggX'].play()
+            pygame.display.update();
+
+            # wait again...
+            await waitWhileSoundPlays(ch)
+            await pauseWithoutFreezing(ONE_SEC)
+
+            await pauseWithoutFreezing(ONE_SEC)
+            pygame.event.clear()
+
+        # -- end of game loop (still alive?) --
+
+        if restartRequested: # straight into a new game: no game over screen or high score
+            pygame.mixer.music.stop()
+            pygame.event.clear()
+            continue
+
+        # game over :(
         pygame.mixer.music.stop()
 
-        # check end of game conditions
-        if numberOfLives <= 0:
-            ch = sounds['gameOver'].play()
-        elif gameWon:
-            break # don't subtract an egg
+        if score > highScore:
+            highScore = score # new high score!
+            highScoreText = 'New High Score!'
+            saveHighScore(highScore)
 
-        # wait a bit...
-        while ch.get_busy(): pass
-        pygame.time.wait(ONE_SEC)
+        playAgainHint = 'Tap to play again...' if touchControls.isTouchScreen() else 'Press any key to play again...'
+        if gameWon:
+            drawTextBox(withQuitHint(['CONGRATULATIONS!!!', '',
+                         'You beat Yoshi vs. Monsters!',
+                         '',
+                         'Coming soon:',
+                         'Yoshi vs. Robots!',
+                         '', highScoreText, '',
+                         playAgainHint]),
+                         windowSurface, spacing=1)
+        else:
+            drawTextBox(withQuitHint(['GAME OVER', '', highScoreText, '',
+                         playAgainHint]),
+                         windowSurface, spacing=1)
 
-        # erase egg + sound effect
-        pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
-        ch = sounds['eggX'].play()
-        pygame.display.update();
-
-        # wait again...
-        while ch.get_busy(): pass
-        pygame.time.wait(ONE_SEC)
-
-        pygame.time.wait(ONE_SEC)
+        pygame.display.update()
+        await pauseWithoutFreezing(ONE_SEC)
         pygame.event.clear()
+        await waitForKeyToContinue()
 
-    # -- end of game loop (still alive?) --
+        sounds['gameOver'].stop()
+        gameOver = False
 
-    # game over :(
-    pygame.mixer.music.stop()
+    # -- end of program loop (infinite)
 
-    if score > highScore:
-        highScore = score # new high score!
-        highScoreText = 'New High Score!'
-        f = open('data/hiscore.dat', 'w')
-        f.write(str(highScore))
-        f.close()
 
-    if gameWon:
-        drawTextBox(['CONGRATULATIONS!!!', '',
-                     'You beat Yoshi vs. Monsters!',
-                     '',
-                     'Coming soon:',
-                     'Yoshi vs. Robots!',
-                     '', highScoreText, '',
-                     'Press any key to play again...', '(\'q\' to quit)'],
-                     windowSurface, spacing=1)
-    else:
-        drawTextBox(['GAME OVER', '', highScoreText, '',
-                     'Press any key to play again...', '(\'q\' to quit)'],
-                     windowSurface, spacing=1)
 
-    pygame.display.update()
-    pygame.time.wait(ONE_SEC)
-    pygame.event.clear()
-    waitForKeyPress()
-
-    sounds['gameOver'].stop()
-    gameOver = False
-
-# -- end of program loop (infinite)
-
+if __name__ == '__main__':
+    asyncio.run(main())

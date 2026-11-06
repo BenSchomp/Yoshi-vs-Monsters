@@ -1,0 +1,634 @@
+<html lang="en-us"><script src="{{cookiecutter.cdn}}pythons.js" type=module id="site" data-python="python{{cookiecutter.PYBUILD}}" data-LINES=42 data-COLUMNS=132 data-os="vtx,snd,gui" async defer>#<!--
+
+print("""
+Loading {{cookiecutter.title}} from {{cookiecutter.archive}}.apk
+    Pygbag Version : {{cookiecutter.version}}
+    Template Version : 0.9.3
+    Python  : {{cookiecutter.PYBUILD}}
+    CDN URL : {{cookiecutter.cdn}}
+    Screen  : {{cookiecutter.width}}x{{cookiecutter.height}}
+    Title   : {{cookiecutter.title}}
+    Folder  : {{cookiecutter.directory}}
+    Authors : {{cookiecutter.authors}}
+    SPDX-License-Identifier: {{cookiecutter.spdx}}
+
+""")
+
+import sys
+import asyncio
+import platform
+import json
+from pathlib import Path
+
+# do not rename
+async def custom_site():
+    import embed
+    platform.document.body.style.background = "#1e1e1e"
+
+    platform.window.transfer.hidden = true
+    # keep the game hidden until it has been resized to the window (see the end of custom_site)
+    platform.window.canvas.style.visibility = "hidden"
+
+
+    bundle = "{{cookiecutter.archive}}"
+
+    # the C or js loader could do that but be explicit.
+    appdir = Path(f"/data/data/{bundle}") # /data/data/{{cookiecutter.archive}}
+    appdir.mkdir()
+
+
+    # unpack filesystem from compressed archive into work dir
+    if platform.window.location.host.find('.itch.zone')>0:
+        import zipfile
+        async with platform.fopen("{{cookiecutter.archive}}.apk", "rb") as archive:
+            with zipfile.ZipFile(archive) as zip_ref:
+                zip_ref.extractall(appdir.as_posix())
+    else:
+        import tarfile
+        async with platform.fopen("{{cookiecutter.archive}}.tar.gz", "rb") as archive:
+            tar = tarfile.open(fileobj=archive, mode="r:gz")
+            tar.extractall(path=appdir.as_posix(), filter='tar')
+            tar.close()
+
+    # preloader will change to work dir and prepend it to sys.path
+    platform.run_main(PyConfig, loaderhome= appdir / "assets", loadermain=None)
+
+
+    # wait preloading complete : that includes images and wasm compilation of bundled modules
+    while embed.counter()<0:
+        await asyncio.sleep(.1)
+
+    main = appdir / "assets" / "main.py"
+
+    # TODO: test for window.webkitAudioContext and block aio loop until gesture if accessing media manager play
+    # before a gesture is recorded ( touch or click )
+
+    # test/wait user media interaction
+    if not platform.window.MM.UME:
+
+        # now that apk is mounted we have access to font cache
+        # but we need to fill __file__ that is not yet set
+        __import__(__name__).__file__ = main
+
+        # now make a prompt
+        msg  = "Ready to start ! Please click/touch page"
+        platform.window.infobox.innerText = msg
+        print("\n"*4, f"    * Waiting for media user engagement. {msg} *" , "\n"*4)
+
+        while not platform.window.MM.UME:
+            await asyncio.sleep(.1)
+
+    # start async top level machinery if not started and add a console in any case if requested.
+    await TopLevel_async_handler.start_toplevel(platform.shell, console=window.python.config.debug)
+
+    # now that apk is mounted we have access to font cache
+    # but we need to fill __file__/__name__ that are not yet set
+    __import__(__name__).__file__ = main
+
+
+    def ui_callback(pkg):
+        platform.window.infobox.innerText = f"installing {pkg}"
+
+    await shell.source(main, callback=ui_callback)
+
+    # if you don't reach that step
+    # your main.py has an infinite sync loop somewhere !
+
+    platform.window.infobox.style.display = "none"
+    platform.window.config.gui_divider = 1
+    platform.window.window_resize()
+
+    # reveal the game only after the resize, so the title screen appears once at full size
+    # instead of showing small and then jumping
+    await asyncio.sleep(0.1)
+    platform.window.canvas.style.visibility = "visible"
+    platform.window.placeJoystick()
+    print("default.tmpl: done")
+
+    shell.interactive()
+
+asyncio.run( custom_site() )
+
+
+
+
+
+
+
+
+
+
+
+
+# BEGIN BLOCK
+#
+# now this is the html part you can (and should) customize
+# It is not mandatory : pygame-script when it reads the first line (also called
+# shebang ) of above code create absolute minimal widget set
+# required for running with default rules
+#
+# do not alter that comment block it is separating python code from html code
+# =============================================================================
+# --></script><head><!--
+//=============================================================================
+//
+//
+//
+//
+//
+//
+//
+
+    {%- if cookiecutter.comment != "" -%}
+{{cookiecutter.comment}}
+    {% endif %}
+
+--><script type="application/javascript">
+// END BLOCK
+
+
+
+// this dict is available under PyConfig.config from __main__
+
+config = {
+    xtermjs : "{{cookiecutter.xtermjs}}" ,
+    _sdl2 : "canvas",
+    user_canvas : 0,
+    user_canvas_managed : 0,
+    gui_divider : 2,
+    ume_block : {{cookiecutter.ume_block}},
+    can_close : 1, // no "are you sure you want to leave?" prompt on refresh or close
+    archive : "{{cookiecutter.archive}}",
+    gui_debug : 2,
+    cdn : "{{cookiecutter.cdn}}",
+    autorun : {{cookiecutter.autorun}},
+    PYBUILD : "{{cookiecutter.PYBUILD}}",
+    fb_ar   :  1.77,
+    fb_width : "{{cookiecutter.width}}",
+    fb_height : "{{cookiecutter.height}}"
+}
+
+// iPhones only let a page start sound from a tap or key press, and the game's sound engine
+// only tries once, on the first touchstart, which iOS doesn't count. So keep track of every
+// audio context the game makes, and on every tap or key press, wake up any that are asleep.
+// The phone's own volume buttons and silent switch still apply.
+const allAudioContexts = []
+for (const audioContextName of ["AudioContext", "webkitAudioContext"]) {
+    const OriginalAudioContext = window[audioContextName]
+    if (!OriginalAudioContext) continue
+    window[audioContextName] = class extends OriginalAudioContext {
+        constructor(...options) {
+            super(...options)
+            allAudioContexts.push(this)
+        }
+    }
+}
+function wakeUpAudio() {
+    for (const audioContext of allAudioContexts)
+        if (audioContext.state !== "running") audioContext.resume()
+}
+for (const eventName of ["touchend", "click", "keydown"])
+    window.addEventListener(eventName, wakeUpAudio, true)
+
+function show_infobox() {
+    // centered by CSS (see #infobox), so it's already in place before this runs
+    infobox.style.display = "block";
+}
+
+</script>
+
+    <title>{{cookiecutter.title}}</title>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="height=device-height, initial-scale=1.0">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+
+
+    <link rel="icon" type="image/png" href="favicon.png" sizes="16x16">
+
+    <style>
+        #status {
+            display: inline-block;
+            vertical-align: top;
+            margin-top: 20px;
+            margin-left: 30px;
+            font-weight: bold;
+            color: rgb(120, 120, 120);
+        }
+
+        #progress {
+            height: 20px;
+            width: 300px;
+        }
+
+        #infobox {
+            position: fixed; /* center relative to viewport, from the first frame */
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            white-space: nowrap; /* centering limits the box to half the screen width, which wrapped on phones */
+            background: #1e1e1e;
+            color: white;
+            font-weight: bold;
+            padding: 12px 24px;
+ /*           display: none; */
+            z-index: 999999;
+        }
+        div.emscripten { text-align: center; }
+        div.emscripten_border { border: 1px solid black; }
+        div.thick_border { border: 4px solid black; }
+
+        /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
+        /* average size of droid screen 470dp x 320dp  */
+        canvas.emscripten {
+            border: 0px none;
+            background-color: transparent;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+
+            padding: 0;
+            margin: 0 auto;
+
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+
+        /* phone held upright: game near the top, leaving the space below for the joystick */
+        @media (orientation: portrait) {
+            #canvas { top: 24px !important; bottom: auto !important; }
+        }
+
+        /* the touch joystick (see touchControls below), placed by placeJoystick() */
+        #joystick {
+            display: none;
+            position: fixed;
+            z-index: 20;
+            pointer-events: none;
+            width: 90px;
+            height: 90px;
+            margin: -45px 0 0 -45px; /* left/top give its center */
+            box-sizing: border-box;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.375);
+            background: rgba(255, 255, 255, 0.09);
+        }
+        #joystick-knob {
+            display: none; /* shown only while a finger is steering */
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 38px;
+            height: 38px;
+            margin: -19px 0 0 -19px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.45);
+        }
+
+        body {
+            font-family: arial;
+            margin: 0;
+            padding: none;
+            background-color: #1e1e1e;
+        }
+
+        .topright{
+           position:absolute;
+           top:0px;
+           right:0px;
+        }
+
+        .bottomright {
+            position:absolute;
+            top: 40%;
+            right: 0px;
+        }
+
+        .center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .trinfo{
+           position: relative;
+           right: 0px;
+           border: 1px solid black;
+        }
+
+        .framed{
+           position: relative;
+           top: 150px;
+           right: 10px;
+           border: 1px solid black;
+        }
+    </style>
+
+    <script>
+/*
+        if (navigator.serviceWorker)
+            navigator.serviceWorker.register("{{cookiecutter.cdn}}pygbag{{cookiecutter.version}}.js")
+        else
+            console.warn("Service workers not supported")
+*/
+    </script>
+
+    <script src="{{cookiecutter.cdn}}/browserfs.min.js"></script>
+
+</head>
+
+<body>
+
+    <!-- download progress: hidden from the start; the debug view (#debug) shows it -->
+    <div id="transfer" align=center hidden>
+<!--        <div class="spinner" id='spinner'></div> -->
+        <div class="emscripten" id="status">Downloading...</div>
+        <div class="emscripten">
+            <progress value="0" max="100" id="progress"></progress>
+        </div>
+    </div>
+
+
+
+    <canvas class="emscripten" id="canvas"
+width="1px"
+height="1px"
+    oncontextmenu="event.preventDefault()" tabindex=1>
+    </canvas>
+
+    <canvas class="emscripten" id="canvas3d"
+width="{{cookiecutter.width}}px"
+height="{{cookiecutter.height}}px"
+    oncontextmenu="event.preventDefault()" tabindex=1 hidden>
+    </canvas>
+
+    <div id="infobox">Loading, please wait ...</div>
+
+    <div id="joystick"><div id="joystick-knob"></div></div>
+
+    <div id=html></div>
+
+    <div id=crt  class=bottomright >
+
+        <div id="system" hidden>
+            <div class="button-container">
+                <button id="aiostop" disabled>AIO ⏏︎</button>
+                <button id="aiopaused_true" disabled>AIO ■</button>
+                <button id="aiopaused_false" disabled>AIO ▶</button>
+                <button id="pygame_mixer_music_pause" disabled>Music ■</button>
+            </div>
+
+            <div class="button-container">
+                <div id=load_min>min</div>
+                <div id=load_avg>avg</div>
+                <div id=load_max>max</div>
+              <button id="load_rst" disabled>RESET</button>
+            </div>
+
+            <div id="level">(battery level unknown)</div>
+            <div id="stateBattery">(charging state unknown)</div>
+
+        </div>
+
+        <div id=box class="emscripten_border" hidden=true>
+
+            <div id="info" class="trinfo"></div>
+
+            <iframe id="iframe" class="framed" name="iframe"
+width="470px" height="90%"
+allowtransparency="true"
+style="z-index: 10;"
+style="background: #FFFFFF;"
+frameborder="1"
+                allowfullscreen="true"
+                webkitallowfullscreen="true"
+                msallowfullscreen="true"
+                mozallowfullscreen="true"
+                sandbox="allow-same-origin allow-top-navigation allow-scripts allow-pointer-lock"
+                allow="autoplay; fullscreen *; geolocation; microphone; camera; midi; monetization; xr-spatial-tracking; gamepad; gyroscope; accelerometer; xr; cross-origin-isolated"
+                src="{{cookiecutter.cdn}}empty.html"
+                scrolling="yes">
+            </iframe>
+        </div>
+
+    </div>
+
+
+    <div id="dlg" hidden>
+        <input type="file" id="dlg_multifile" multiple accept="image/*">
+        <label for="dlg_multifile">Select files</label>
+    </div>
+
+    <div id="pyconsole">
+        <div id="terminal" tabIndex=1 align="left"></div>
+    </div>
+
+    <script type="application/javascript">
+
+    // Touch controls. The page handles every touch itself, and the game reads
+    // window.touchControls every frame (see TouchControls in yoshi.py).
+    // The joystick stays in one spot: centered below the game with a third of it over the
+    // grass when the phone is upright. When it's sideways, the joystick sits a third of the way up,
+    // starting in the grey strip on the right, and moves to whichever side strip a finger last landed in, for left thumbs.
+    // During play, wherever a finger lands becomes the steering center: dragging away from that
+    // spot steers Yoshi in 8 directions including diagonals, and the knob on the fixed joystick
+    // shows the drag. Anywhere on screen, a quick tap works like "any key" and two quick taps pause.
+    const JOYSTICK_RADIUS = 45         // matches #joystick's size
+    const KNOB_TRAVEL = 34             // how far the knob moves from the center
+    const DEAD_ZONE = 10               // closer to the center than this doesn't move Yoshi
+    const DIAGONAL_SHARE = 0.38        // sin(22.5 degrees): splits the circle into 8 equal directions
+    const TAP_MAX_MS = 250             // a shorter touch, without steering, is a tap
+    const DOUBLE_TAP_GAP_MS = 350
+    window.touchControls = { left: 0, right: 0, up: 0, down: 0, taps: 0, doubleTaps: 0,
+                             lastTapX: 0, lastTapY: 0, // in game pixels, for tapping buttons on menus
+                             isTouchScreen: +matchMedia("(pointer: coarse)").matches }
+    const joystickRing = document.getElementById("joystick")
+    const joystickCenter = { x: 0, y: 0 }
+    let currentTouch = null            // the finger being followed; other fingers are ignored
+    let lastTapEndedAt = -Infinity
+    let sidewaysJoystickSide = "right"
+    let joystickWanted = false         // only while a game is being played: see setJoystickVisible
+
+    // Called whenever the game's size or place changes, and once the game appears.
+    function placeJoystick() {
+        const gameCanvas = document.getElementById("canvas")
+        const hasTouchScreen = matchMedia("(pointer: coarse)").matches
+        if (!hasTouchScreen || gameCanvas.style.visibility !== "visible") return
+        const gameBox = gameCanvas.getBoundingClientRect()
+        if (innerHeight > innerWidth) {
+            joystickCenter.x = innerWidth / 2
+            // a third of the joystick's height above the game's bottom edge, two thirds below
+            joystickCenter.y = gameBox.bottom + JOYSTICK_RADIUS / 3
+        } else {
+            joystickCenter.x = sidewaysJoystickSide === "right" ? (gameBox.right + innerWidth) / 2 : gameBox.left / 2
+            joystickCenter.y = gameBox.bottom - gameBox.height / 3 // a third of the way up the game
+        }
+        joystickRing.style.left = joystickCenter.x + "px"
+        joystickRing.style.top = joystickCenter.y + "px"
+        joystickRing.style.display = joystickWanted ? "block" : "none"
+    }
+    window.placeJoystick = placeJoystick
+
+    // The game hides the joystick on the title, pause and game over screens.
+    window.setJoystickVisible = visible => {
+        joystickWanted = visible
+        placeJoystick()
+    }
+    new ResizeObserver(placeJoystick).observe(document.getElementById("canvas"))
+    window.addEventListener("resize", () => setTimeout(placeJoystick, 100))
+
+    function moveSidewaysJoystickToSideOf(touch) {
+        if (innerHeight > innerWidth) return
+        const gameBox = document.getElementById("canvas").getBoundingClientRect()
+        const touchedSide = touch.clientX < gameBox.left ? "left" : touch.clientX > gameBox.right ? "right" : null
+        if (touchedSide && touchedSide !== sidewaysJoystickSide) {
+            sidewaysJoystickSide = touchedSide
+            placeJoystick()
+        }
+    }
+
+    function findCurrentTouch(event) {
+        if (!currentTouch) return null
+        return Array.from(event.changedTouches).find(touch => touch.identifier === currentTouch.id) || null
+    }
+
+    function moveJoystickKnob(offsetX, offsetY) {
+        document.getElementById("joystick-knob").style.transform = `translate(${offsetX}px, ${offsetY}px)`
+    }
+
+    function steerToward(touch) {
+        const offsetX = touch.clientX - currentTouch.startX
+        const offsetY = touch.clientY - currentTouch.startY
+        const distance = Math.hypot(offsetX, offsetY)
+        const steering = distance > DEAD_ZONE
+        if (steering) currentTouch.steered = true
+        Object.assign(touchControls, {
+            left: +(steering && offsetX / distance < -DIAGONAL_SHARE),
+            right: +(steering && offsetX / distance > DIAGONAL_SHARE),
+            up: +(steering && offsetY / distance < -DIAGONAL_SHARE),
+            down: +(steering && offsetY / distance > DIAGONAL_SHARE),
+        })
+        const knobScale = distance > KNOB_TRAVEL ? KNOB_TRAVEL / distance : 1
+        moveJoystickKnob(offsetX * knobScale, offsetY * knobScale)
+    }
+
+    window.addEventListener("touchstart", event => {
+        event.preventDefault()   // no scrolling, zooming or emulated mouse clicks
+        event.stopPropagation()  // the game sees touches only through touchControls
+        if (currentTouch) return
+        const touch = event.changedTouches[0]
+        moveSidewaysJoystickToSideOf(touch)
+        const steersJoystick = joystickRing.style.display === "block" // only during play
+        currentTouch = { id: touch.identifier, startedAt: performance.now(), steersJoystick, steered: false,
+                         startX: touch.clientX, startY: touch.clientY }
+        if (steersJoystick) {
+            document.getElementById("joystick-knob").style.display = "block"
+            steerToward(touch)
+        }
+    }, { capture: true, passive: false })
+
+    window.addEventListener("touchmove", event => {
+        event.preventDefault()
+        event.stopPropagation()
+        const touch = findCurrentTouch(event)
+        if (touch && currentTouch.steersJoystick) steerToward(touch)
+    }, { capture: true, passive: false })
+
+    function endTouch(event) {
+        event.preventDefault()
+        event.stopPropagation()
+        const touch = findCurrentTouch(event)
+        if (!touch) return
+        const now = performance.now()
+        const wasTap = !currentTouch.steered && now - currentTouch.startedAt < TAP_MAX_MS
+        if (wasTap) {
+            const gameCanvas = document.getElementById("canvas")
+            const gameBox = gameCanvas.getBoundingClientRect()
+            touchControls.lastTapX = (touch.clientX - gameBox.left) * gameCanvas.width / gameBox.width
+            touchControls.lastTapY = (touch.clientY - gameBox.top) * gameCanvas.height / gameBox.height
+        }
+        if (wasTap && currentTouch.startedAt - lastTapEndedAt < DOUBLE_TAP_GAP_MS) {
+            touchControls.doubleTaps += 1
+            lastTapEndedAt = -Infinity   // a third tap starts over
+        } else if (wasTap) {
+            touchControls.taps += 1
+            lastTapEndedAt = now
+        } else {
+            lastTapEndedAt = -Infinity
+        }
+        currentTouch = null
+        Object.assign(touchControls, { left: 0, right: 0, up: 0, down: 0 })
+        moveJoystickKnob(0, 0)
+        document.getElementById("joystick-knob").style.display = "none"
+    }
+    window.addEventListener("touchend", endTouch, { capture: true, passive: false })
+    window.addEventListener("touchcancel", endTouch, { capture: true, passive: false })
+
+    globalThis.__canvas_resized = (self, ecw, ech) => {
+        console.warn("TODO: panda3d canvas monitor", self, ecw, ech)
+    }
+
+    async function custom_onload(debug_hidden) {
+        // this is called before anything python is loaded
+        // make your js customization here
+        console.log(__FILE__, "custom_onload")
+
+        pyconsole.hidden = debug_hidden
+        system.hidden = debug_hidden
+        transfer.hidden = debug_hidden
+        info.hidden = debug_hidden
+        box.hidden =  debug_hidden
+
+        show_infobox()
+    }
+
+    function custom_prerun(){
+        // no python main and no (MEMFS + VFS) yet.
+        console.log(__FILE__, "custom_prerun")
+
+    }
+
+    function custom_postrun(){
+        // python main and no VFS filesystem yet.
+        console.log(__FILE__, "custom_postrun")
+
+    }
+
+    function debug() {
+        // allow to gain access to dev tools from js console
+        // but only on desktop. difficult to reach when in iframe
+        python.config.debug = true
+        custom_onload(false)
+        Module.PyRun_SimpleString("shell.uptime()")
+        window_resize()
+    }
+
+    function info_inline(data){
+        document.getElementById("info").innerHTML = data
+    }
+
+    function info_online(url) {
+        // display info about current APK
+        fetch( url /*, options */)
+            .then((response) => response.text())
+            .then((html) => {
+                info_inline(html);
+        })
+        .catch((error) => {
+            console.warn(error);
+        });
+    }
+
+    function frame_online(url) {
+        window.frames["iframe"].location = url;
+    }
+
+    </script>
+
+</body>
+</html>
