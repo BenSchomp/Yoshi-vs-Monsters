@@ -135,30 +135,42 @@ def drawTextBox(text, parent, spacing=2):
         textbox.blit(t, textrect)
         y += linesize * spacing
 
-# M toggles the music and S toggles the sound effects, independently.
-musicMuted = False
-soundEffectsMuted = False
+# M is "mute": it silences everything, and a second M brings back the music
+# and whatever the sound effects were before muting.
+# S flips the sound effects on or off, muted or not (so M then S = sound effects only).
+# Music plays whenever the game isn't muted.
+muted = False
+soundEffectsOn = True
+soundEffectsOnBeforeMute = True
 
 def applyVolumes(silenceEverything=False):
     for s in sounds.values():
-        s.set_volume(0 if silenceEverything or soundEffectsMuted else SOUND_VOL)
-    pygame.mixer.music.set_volume(0 if silenceEverything or musicMuted else MUSIC_VOL)
+        s.set_volume(SOUND_VOL if soundEffectsOn and not silenceEverything else 0)
+    pygame.mixer.music.set_volume(MUSIC_VOL if not muted and not silenceEverything else 0)
 
 def toggleMusicOrSoundsForKey(pressedKey, applyNow=True):
     """Handles M and S. Returns True if the key was one of them."""
-    global musicMuted, soundEffectsMuted
+    global muted, soundEffectsOn, soundEffectsOnBeforeMute
     if pressedKey == ord('m'):
-        musicMuted = not musicMuted
+        if muted:
+            muted = False
+            soundEffectsOn = soundEffectsOnBeforeMute
+        else:
+            muted = True
+            soundEffectsOnBeforeMute = soundEffectsOn
+            soundEffectsOn = False
     elif pressedKey == ord('s'):
-        soundEffectsMuted = not soundEffectsMuted
+        soundEffectsOn = not soundEffectsOn
+        if muted: # remember a choice made while muted for when M unmutes
+            soundEffectsOnBeforeMute = soundEffectsOn
     else:
         return False
     if applyNow:
         applyVolumes()
     return True
 
-def onOff(muted):
-    return 'OFF' if muted else 'ON'
+def onOff(isOn):
+    return 'ON' if isOn else 'OFF'
 
 def withQuitHint(lines):
     """The quit option only exists on desktop; a browser tab can't quit."""
@@ -177,8 +189,8 @@ async def showPauseMenu():
     while True:
         menuLines = withQuitHint(['PAUSED', '',
                                   '-- Use the arrow keys to move --',
-                                  '[m] music: ' + onOff(musicMuted),
-                                  '[s] sounds: ' + onOff(soundEffectsMuted),
+                                  '[m] mute: ' + onOff(muted),
+                                  '[s] sound effects: ' + onOff(soundEffectsOn),
                                   '[esc] resume'])
         windowSurface.blit(gameScreenBehindMenu, (0, 0))
         drawTextBox(menuLines, windowSurface, spacing=1)
@@ -254,7 +266,7 @@ async def main():
                  'Avoid the Monsters, eat the Apples.',
                  '',
                  '-- Use the arrow keys to move --',
-                 '[esc] pause : [m]usic : [s]ounds',
+                 '[esc] pause : [m]ute : [s]ounds',
                  '',
                  'PRESS ANY KEY TO START',
                  '',
