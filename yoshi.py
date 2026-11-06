@@ -123,7 +123,8 @@ def drawTextBox(text, parent, spacing=2):
 
     # center textbox rectangle on parent
     textboxRect = pygame.Rect(0,0,boxwidth,boxheight)
-    textboxRect.center = (parent.get_width() / 2, parent.get_height() / 3)
+    # sit a third of the way down, or lower if the box is too tall to fit there
+    textboxRect.center = (parent.get_width() / 2, max(parent.get_height() / 3, boxheight / 2))
 
     # create textbox subsurface
     textbox = parent.subsurface(textboxRect)
