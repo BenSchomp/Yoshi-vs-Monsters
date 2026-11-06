@@ -4,7 +4,7 @@ from pygame.locals import *
 # game constants
 GAME_WIDTH = 750
 GAME_HEIGHT = 600
-HORIZON_HEIGHT = GAME_HEIGHT * 2/3
+HORIZON_HEIGHT = GAME_HEIGHT * 2 // 3
 
 ONE_SEC = 1000
 
@@ -207,7 +207,7 @@ while True: # the program loop
         # reset monsters
         monsters = []
         newMonsterRate = MAX_MONSTER_RATE[level]
-        monsterAddCounter = MAX_MONSTER_RATE[level] * (3/4)
+        monsterAddCounter = MAX_MONSTER_RATE[level] * 3 // 4
 
         # reset yoshi
         yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
@@ -362,12 +362,12 @@ while True: # the program loop
                 sounds['ba-ding'].play()
 
             if appleCount >= LEVEL_UP_APPLES[level]:
-                ch.queue(sounds['yoshi'])
+                if ch: ch.queue(sounds['yoshi'])
                 appleCount = 0
                 score += LEVEL_UP_BONUS[level]
                 level += 1
                 if level >= NUM_LEVELS:
-                    ch.queue(sounds['woah'])
+                    if ch: ch.queue(sounds['woah'])
                     playing = False
                     gameWon = True
 
@@ -383,7 +383,7 @@ while True: # the program loop
             break # don't subtract an egg
 
         # wait a bit...
-        while ch.get_busy(): pass
+        while ch and ch.get_busy(): pygame.time.wait(10)
         pygame.time.wait(ONE_SEC)
 
         # erase egg + sound effect
@@ -392,7 +392,7 @@ while True: # the program loop
         pygame.display.update();
 
         # wait again...
-        while ch.get_busy(): pass
+        while ch and ch.get_busy(): pygame.time.wait(10)
         pygame.time.wait(ONE_SEC)
 
         pygame.time.wait(ONE_SEC)
