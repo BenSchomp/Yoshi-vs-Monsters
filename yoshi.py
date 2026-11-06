@@ -59,6 +59,7 @@ async def waitForKeyPress():
                 return event.key
             if event.type == MOUSEBUTTONUP: # a click works like "any key"
                 return None
+        pygame.display.update() # keep the screen drawn even if the browser resized the canvas
         await asyncio.sleep(1 / FPS) # let the browser draw and deliver key events, without spinning the CPU
 
 # Pauses keep pumping window events. If a window stops reading events for a
