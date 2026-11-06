@@ -57,8 +57,17 @@ async def waitForKeyPress():
                 return
         await asyncio.sleep(0) # let the browser draw and deliver key events
 
+# Pauses keep pumping window events. If a window stops reading events for a
+# few seconds, macOS shows the spinning beach ball (and the browser can stall).
 async def waitWhileSoundPlays(channel):
     while channel is not None and channel.get_busy():
+        pygame.event.pump()
+        await asyncio.sleep(0.05)
+
+async def pauseWithoutFreezing(milliseconds):
+    pauseEndsAt = pygame.time.get_ticks() + milliseconds
+    while pygame.time.get_ticks() < pauseEndsAt:
+        pygame.event.pump()
         await asyncio.sleep(0.05)
 
 def loadHighScore():
@@ -408,7 +417,7 @@ async def main():
 
             # wait a bit...
             await waitWhileSoundPlays(ch)
-            await asyncio.sleep(ONE_SEC / 1000)
+            await pauseWithoutFreezing(ONE_SEC)
 
             # erase egg + sound effect
             pygame.draw.rect(windowSurface, GROUND_COLOR[level], eggRect )
@@ -417,9 +426,9 @@ async def main():
 
             # wait again...
             await waitWhileSoundPlays(ch)
-            await asyncio.sleep(ONE_SEC / 1000)
+            await pauseWithoutFreezing(ONE_SEC)
 
-            await asyncio.sleep(ONE_SEC / 1000)
+            await pauseWithoutFreezing(ONE_SEC)
             pygame.event.clear()
 
         # -- end of game loop (still alive?) --
@@ -447,7 +456,7 @@ async def main():
                          windowSurface, spacing=1)
 
         pygame.display.update()
-        await asyncio.sleep(ONE_SEC / 1000)
+        await pauseWithoutFreezing(ONE_SEC)
         pygame.event.clear()
         await waitForKeyPress()
 
