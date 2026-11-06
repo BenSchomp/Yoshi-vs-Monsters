@@ -50,14 +50,13 @@ def terminate():
     sys.exit()
 
 async def waitForKeyPress():
+    """Waits for a key to be released and returns which key it was."""
     while True:
         for event in pygame.event.get():
             if event.type == QUIT:
                 terminate()
             if event.type == KEYUP:
-                if event.key == K_ESCAPE: # pressing esc quits
-                    terminate()
-                return
+                return event.key
         await asyncio.sleep(0) # let the browser draw and deliver key events
 
 # Pauses keep pumping window events. If a window stops reading events for a
@@ -136,6 +135,32 @@ def drawTextBox(text, parent, spacing=2):
         textbox.blit(t, textrect)
         y += linesize * spacing
 
+async def showPauseMenu(mute):
+    """Esc pauses the game. Quitting is only possible from here (and only on desktop).
+    Returns the mute setting, which can be changed while paused."""
+    gameScreenBehindMenu = windowSurface.copy()
+    toggleMute(False) # silence everything while paused
+    while True:
+        menuLines = ['PAUSED', '',
+                     '-- Use the arrow keys to move --',
+                     '[m] sound: ' + ('OFF' if mute else 'ON'),
+                     '[esc] resume']
+        if not RUNNING_IN_BROWSER:
+            menuLines.append('[q] quit')
+        windowSurface.blit(gameScreenBehindMenu, (0, 0))
+        drawTextBox(menuLines, windowSurface, spacing=1)
+        pygame.display.update()
+
+        pressedKey = await waitForKeyPress()
+        if pressedKey == ord('q') and not RUNNING_IN_BROWSER:
+            terminate()
+        elif pressedKey == ord('m'):
+            mute = not mute
+        elif pressedKey == K_ESCAPE:
+            break
+    toggleMute(not mute) # restore the chosen sound setting
+    return mute
+
 def toggleMute(mute):
     mute = not mute
     if mute:
@@ -210,7 +235,7 @@ async def main():
                  'Avoid the Monsters, eat the Apples.',
                  '',
                  '-- Use the arrow keys to move --',
-                 '[q]uit : [p]ause : [m]ute',
+                 '[esc] pause : [m]ute',
                  '',
                  'PRESS ANY KEY TO START',
                  '',
@@ -280,16 +305,9 @@ async def main():
                         if event.key == K_DOWN:  moveDown = False
 
                         if event.key == ord('m'): mute = toggleMute(mute)
-                        if event.key == ord('p'):
-                            toggleMute(False)
-                            drawTextBox(['PAUSED', 'Press any key to continue...'],
-                                        windowSurface)
-                            pygame.display.update()
-                            await waitForKeyPress()
-                            if not mute:
-                                toggleMute(True)
-                        if event.key == K_ESCAPE or event.key == ord('q'):
-                            terminate()
+                        if event.key == K_ESCAPE:
+                            mute = await showPauseMenu(mute)
+                            moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
 
                 # end event processing
 
@@ -471,11 +489,11 @@ async def main():
                          'Coming soon:',
                          'Yoshi vs. Robots!',
                          '', highScoreText, '',
-                         'Press any key to play again...', '(\'q\' to quit)'],
+                         'Press any key to play again...'],
                          windowSurface, spacing=1)
         else:
             drawTextBox(['GAME OVER', '', highScoreText, '',
-                         'Press any key to play again...', '(\'q\' to quit)'],
+                         'Press any key to play again...'],
                          windowSurface, spacing=1)
 
         pygame.display.update()
