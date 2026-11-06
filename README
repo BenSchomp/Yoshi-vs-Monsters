@@ -9,8 +9,15 @@ A PyGame Space Invaders-type game featuring
 Yoshi from the Mario games and the monsters
 from Monsters, Inc.
 
-Requires the Pygame libraries:
-  + http://www.pygame.org/download.shtml
+Play on desktop (Python 3):
+  pip install pygame-ce
+  python3 yoshi.py
+
+Play in a browser:
+  pip install pygbag
+  pygbag .          (then open http://localhost:8000)
+
+Pushing to master builds the browser version and
+publishes it to GitHub Pages (.github/workflows/deploy-web.yml).
 
 Enjoy!
-
