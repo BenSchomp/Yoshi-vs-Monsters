@@ -182,6 +182,75 @@ async def waitForKeyToContinue():
 
 PAUSE_KEYS = (K_ESCAPE, K_SPACE) # either one pauses, and either one resumes
 
+class TouchJoystick:
+    """A floating joystick for touch screens (it works with a mouse too).
+    Wherever a finger goes down becomes the joystick's center, and dragging away from
+    that spot moves Yoshi in that direction, diagonals included. The center stays put
+    until the finger lifts. Two quick taps in a row pause the game."""
+    RING_RADIUS = 50     # how far the knob can travel from the center, in game pixels
+    KNOB_RADIUS = 22
+    DEAD_ZONE = 12       # drags shorter than this don't move Yoshi
+    DIAGONAL_SHARE = 0.38 # sin(22.5 degrees): splits the circle into 8 equal directions
+    TAP_MAX_MS = 250     # a touch shorter than this, without dragging, is a tap
+    DOUBLE_TAP_GAP_MS = 350
+
+    def __init__(self):
+        self.lastTapEndedAt = -10**9
+        self.reset()
+
+    def reset(self):
+        self.center = None # None while no finger is down
+        self.knob = None
+        self.touchStartedAt = 0
+        self.draggedPastDeadZone = False
+
+    def handleEvent(self, event):
+        """Returns True when this event completes a double tap."""
+        if event.type == MOUSEBUTTONDOWN and event.button == 1:
+            self.center = self.knob = event.pos
+            self.touchStartedAt = pygame.time.get_ticks()
+            self.draggedPastDeadZone = False
+        elif event.type == MOUSEMOTION and self.center is not None:
+            self.knob = event.pos
+            if self.dragDistance() > self.DEAD_ZONE:
+                self.draggedPastDeadZone = True
+        elif event.type == MOUSEBUTTONUP and event.button == 1 and self.center is not None:
+            now = pygame.time.get_ticks()
+            wasTap = not self.draggedPastDeadZone and now - self.touchStartedAt < self.TAP_MAX_MS
+            isDoubleTap = wasTap and self.touchStartedAt - self.lastTapEndedAt < self.DOUBLE_TAP_GAP_MS
+            self.lastTapEndedAt = now if wasTap and not isDoubleTap else -10**9 # a third tap starts over
+            self.reset()
+            return isDoubleTap
+        return False
+
+    def dragDistance(self):
+        return ((self.knob[0] - self.center[0]) ** 2 + (self.knob[1] - self.center[1]) ** 2) ** 0.5
+
+    def directions(self):
+        """Returns (left, right, up, down) for the current drag."""
+        if self.center is None or self.dragDistance() <= self.DEAD_ZONE:
+            return False, False, False, False
+        distance = self.dragDistance()
+        horizontalShare = (self.knob[0] - self.center[0]) / distance
+        verticalShare = (self.knob[1] - self.center[1]) / distance
+        return (horizontalShare < -self.DIAGONAL_SHARE, horizontalShare > self.DIAGONAL_SHARE,
+                verticalShare < -self.DIAGONAL_SHARE, verticalShare > self.DIAGONAL_SHARE)
+
+    def draw(self, surface):
+        if self.center is None:
+            return
+        overlay = pygame.Surface((GAME_WIDTH, GAME_HEIGHT), pygame.SRCALPHA)
+        pygame.draw.circle(overlay, (255, 255, 255, 60), self.center, self.RING_RADIUS)
+        pygame.draw.circle(overlay, (255, 255, 255, 140), self.center, self.RING_RADIUS, 3)
+        knobX = self.knob[0] - self.center[0]
+        knobY = self.knob[1] - self.center[1]
+        distance = self.dragDistance()
+        if distance > self.RING_RADIUS:
+            knobX, knobY = knobX * self.RING_RADIUS / distance, knobY * self.RING_RADIUS / distance
+        pygame.draw.circle(overlay, (255, 255, 255, 170),
+                           (self.center[0] + knobX, self.center[1] + knobY), self.KNOB_RADIUS)
+        surface.blit(overlay, (0, 0))
+
 async def confirmRestart(gameScreenBehindMenu):
     """Returns True if the player confirms with Y; N or Esc cancels."""
     windowSurface.blit(gameScreenBehindMenu, (0, 0))
@@ -210,7 +279,7 @@ async def showPauseMenu():
                                   '[m] mute: ' + onOff(muted),
                                   '[s] sound effects: ' + onOff(soundEffectsOn),
                                   '[r] restart',
-                                  '[esc] or [space] resume'])
+                                  '[esc], [space] or tap: resume'])
         windowSurface.blit(gameScreenBehindMenu, (0, 0))
         drawTextBox(menuLines, windowSurface, spacing=1)
         pygame.display.update()
@@ -224,7 +293,7 @@ async def showPauseMenu():
             if await confirmRestart(gameScreenBehindMenu):
                 restartRequested = True
                 break
-        elif pressedKey in PAUSE_KEYS:
+        elif pressedKey in PAUSE_KEYS or pressedKey is None: # None is a tap or click
             break
     pygame.mixer.unpause()
     pygame.mixer.music.unpause()
@@ -292,6 +361,7 @@ monsterSizes = [[40,43], # apple1.png
 async def main():
     global facingLeft, yoshiImage
     ch = None # sound channel of the most recent effect
+    joystick = TouchJoystick()
     # draw welcome screen
     windowSurface.fill(SKY_COLOR[0])
     drawTextBox(withQuitHint(['Yoshi vs. Monsters!!!',
@@ -339,6 +409,7 @@ async def main():
             # reset yoshi
             yoshiRect.center = (GAME_WIDTH / 2, GAME_HEIGHT - 120)
             moveLeft = moveRight = moveUp = moveDown = False
+            joystick.reset()
             if facingLeft:
                 yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
                 facingLeft = False
@@ -370,11 +441,12 @@ async def main():
                         if event.key == K_DOWN:  moveDown = False
 
                         toggleMusicOrSoundsForKey(event.key)
-                        if event.key in PAUSE_KEYS:
-                            restartRequested = await showPauseMenu()
-                            if restartRequested:
-                                playing = False
-                            moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
+                    if event.type == KEYUP and event.key in PAUSE_KEYS or joystick.handleEvent(event):
+                        restartRequested = await showPauseMenu()
+                        if restartRequested:
+                            playing = False
+                        moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
+                        joystick.reset()
 
                 # end event processing
 
@@ -408,20 +480,21 @@ async def main():
                     monsters.append(newMonster)
                     # debug: print 'New Monster, Type %d: [%d, %d] * %f = [%d, %d]' % (monsterType, monsterSizes[monsterType][0], monsterSizes[monsterType][1], monsterScale, monsterWidth, monsterHeight)
 
-                # move yoshi around
-                if moveLeft and yoshiRect.left > 0:
+                # move yoshi around, with the arrow keys or the touch joystick
+                joystickLeft, joystickRight, joystickUp, joystickDown = joystick.directions()
+                if (moveLeft or joystickLeft) and yoshiRect.left > 0:
                     yoshiRect.move_ip(-1 * YOSHI_SPEED, 0)
                     if not facingLeft:
                         yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
                         facingLeft = True
-                if moveRight and yoshiRect.right < GAME_WIDTH:
+                if (moveRight or joystickRight) and yoshiRect.right < GAME_WIDTH:
                     yoshiRect.move_ip(YOSHI_SPEED, 0)
                     if facingLeft:
                         yoshiImage = pygame.transform.flip(yoshiImage, 1, 0)
                         facingLeft = False
-                if moveUp and yoshiRect.bottom > HORIZON_HEIGHT + 30:
+                if (moveUp or joystickUp) and yoshiRect.bottom > HORIZON_HEIGHT + 30:
                     yoshiRect.move_ip(0, -1 * YOSHI_SPEED)
-                if moveDown and yoshiRect.bottom < GAME_HEIGHT - 42:
+                if (moveDown or joystickDown) and yoshiRect.bottom < GAME_HEIGHT - 42:
                     yoshiRect.move_ip(0, YOSHI_SPEED)
 
                 # move monsters down
@@ -491,6 +564,8 @@ async def main():
                                             GAME_HEIGHT-30, 25, 27)
                     windowSurface.blit(appleImage if apple < appleCount else
                                        blankAppleImage, appleRect)
+
+                joystick.draw(windowSurface)
 
                 # update the screen
                 pygame.display.update()
