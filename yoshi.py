@@ -102,20 +102,15 @@ def drawText(text, font, surface, x, y):
     surface.blit(textobj, textrect)
 
 def drawTextBox(text, parent, spacing=2):
-    textobjs = []
-    boxwidth, boxheight = 0, 0
-    linesize = font.get_linesize() # recommended line height
+    """Each line is a string (drawn in `font`) or a (string, font) pair for a different size."""
+    linesWithFonts = [line if isinstance(line, tuple) else (line, font) for line in text]
+    textobjs = [(lineFont.render(line, 1, TEXT_COLOR), lineFont.get_linesize())
+                for line, lineFont in linesWithFonts]
     padding = 40
 
-    for line in text:
-        textobjs.append(font.render(line, 1, TEXT_COLOR)) # render line
-        textwidth, textheight = font.size(line) # height is ignored
-
-        if textwidth > boxwidth:
-            boxwidth = textwidth # maintain width of longest line
-
-    numlines = len(text) # number of lines to render = n + (n - 1)(s - 1)
-    boxheight = linesize * (numlines * spacing - spacing + 1)
+    # each line takes its font's height, times the spacing (except after the last line)
+    boxwidth = max(t.get_width() for t, _ in textobjs)
+    boxheight = sum(linesize * spacing for _, linesize in textobjs) - textobjs[-1][1] * (spacing - 1)
 
     # add margins
     boxwidth += padding
@@ -133,7 +128,7 @@ def drawTextBox(text, parent, spacing=2):
 
     # blit each textobj on the textbox surface
     y = padding / 2
-    for t in textobjs:
+    for t, linesize in textobjs:
         textrect = t.get_rect()
         textrect.center = (boxwidth / 2, y + (linesize / 2))
         textbox.blit(t, textrect)
@@ -257,6 +252,7 @@ pygame.mouse.set_visible(False)
 # setup fonts
 font = pygame.font.SysFont(None, 36)
 font_small = pygame.font.SysFont(None, 24)
+font_original_version_line = pygame.font.SysFont(None, 30) # slightly smaller, for the v0.4 credit
 
 # setup sounds & music (OGG, because browsers can't play WAV reliably or MIDI at all)
 # source -- http://www.mfgg.net/index.php?act=resdb&param=03&c=5&id=24121
@@ -307,7 +303,7 @@ async def main():
                  '',
                  'PRESS ANY KEY OR CLICK TO START',
                  '',
-                 'v0.4 March 29, 2011',
+                 ('v0.4 March 29, 2011', font_original_version_line),
                  'v0.5 November 6, 2026',
                  'by Elsie, Charlie & Ben Schomp']), windowSurface, spacing=1)
     pygame.display.update()
