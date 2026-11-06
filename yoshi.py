@@ -212,6 +212,11 @@ async def showPauseMenu():
 
 
 # setup pygame, the window, and mouse cursor
+# Browser audio runs on the same thread as the game, so the default small mixer
+# buffer runs dry between frames and crackles. A bigger buffer smooths it out
+# (sound effects start ~90ms later, which isn't noticeable here).
+if RUNNING_IN_BROWSER:
+    pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=4096)
 pygame.init()
 mainClock = pygame.time.Clock()
 windowSurface = pygame.display.set_mode((GAME_WIDTH, GAME_HEIGHT))
