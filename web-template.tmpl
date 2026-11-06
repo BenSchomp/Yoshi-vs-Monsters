@@ -168,18 +168,8 @@ config = {
 }
 
 function show_infobox() {
+    // centered by CSS (see #infobox), so it's already in place before this runs
     infobox.style.display = "block";
-
-    // Measure box
-    const w = infobox.offsetWidth;
-    const h = infobox.offsetHeight;
-
-    // Center in viewport
-    const left = (window.innerWidth - w) / 2;
-    const top = (window.innerHeight - h) / 2;
-
-    infobox.style.left = left + "px";
-    infobox.style.top = top + "px";
 }
 
 </script>
@@ -211,7 +201,10 @@ function show_infobox() {
         }
 
         #infobox {
-            position: fixed; /* center relative to viewport */
+            position: fixed; /* center relative to viewport, from the first frame */
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
             background: #1e1e1e;
             color: white;
             font-weight: bold;
@@ -296,7 +289,8 @@ function show_infobox() {
 
 <body>
 
-    <div id="transfer" align=center>
+    <!-- download progress: hidden from the start; the debug view (#debug) shows it -->
+    <div id="transfer" align=center hidden>
 <!--        <div class="spinner" id='spinner'></div> -->
         <div class="emscripten" id="status">Downloading...</div>
         <div class="emscripten">
