@@ -55,6 +55,7 @@ async def waitForKeyPress():
     """Waits for a key to be released and returns which key it was,
     or None for a click or a tap."""
     touchControls.takeNewTaps() # forget taps from before this wait started
+    touchControls.showJoystick(False) # every wait for a key is a menu or message screen
     while True:
         if any(touchControls.takeNewTaps()):
             return None
@@ -197,6 +198,13 @@ class TouchControls:
     def __init__(self):
         self.tapsSeen = 0
         self.doubleTapsSeen = 0
+        self.joystickVisible = False
+
+    def showJoystick(self, visible):
+        """Shows the joystick during play and hides it on the title, pause and game over screens."""
+        if RUNNING_IN_BROWSER and visible != self.joystickVisible:
+            platform.window.setJoystickVisible(visible)
+        self.joystickVisible = visible
 
     def directions(self):
         """Returns (left, right, up, down) for the joystick right now."""
@@ -382,6 +390,7 @@ async def main():
             while playing: # the event loop
 
                 # process events
+                touchControls.showJoystick(True)
                 newTaps, newDoubleTaps = touchControls.takeNewTaps()
                 if newDoubleTaps:
                     pygame.event.post(pygame.event.Event(KEYUP, key=K_ESCAPE)) # a double tap pauses, like Esc

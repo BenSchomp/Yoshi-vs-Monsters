@@ -451,6 +451,7 @@ frameborder="1"
     let currentTouch = null            // the finger being followed; other fingers are ignored
     let lastTapEndedAt = -Infinity
     let sidewaysJoystickSide = "right"
+    let joystickWanted = false         // only while a game is being played: see setJoystickVisible
 
     // Called whenever the game's size or place changes, and once the game appears.
     function placeJoystick() {
@@ -468,9 +469,15 @@ frameborder="1"
         }
         joystickRing.style.left = joystickCenter.x + "px"
         joystickRing.style.top = joystickCenter.y + "px"
-        joystickRing.style.display = "block"
+        joystickRing.style.display = joystickWanted ? "block" : "none"
     }
     window.placeJoystick = placeJoystick
+
+    // The game hides the joystick on the title, pause and game over screens.
+    window.setJoystickVisible = visible => {
+        joystickWanted = visible
+        placeJoystick()
+    }
     new ResizeObserver(placeJoystick).observe(document.getElementById("canvas"))
     window.addEventListener("resize", () => setTimeout(placeJoystick, 100))
 
