@@ -190,10 +190,9 @@ PAUSE_KEYS = (K_ESCAPE, K_SPACE) # either one pauses, and either one resumes
 
 class TouchControls:
     """Reads the phone touch controls. The web page runs them (see touchControls in
-    web-template.tmpl), so they work anywhere on screen, including the grey space
-    around the game: wherever a finger lands becomes a joystick's center, dragging
-    away from it moves Yoshi that way, a quick tap works like "any key", and two
-    quick taps pause. On desktop there are none."""
+    web-template.tmpl): a joystick fixed in the grey space below the game steers
+    Yoshi, a quick tap anywhere works like "any key", and two quick taps pause.
+    On desktop there are none."""
 
     def __init__(self):
         self.tapsSeen = 0

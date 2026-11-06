@@ -102,6 +102,7 @@ async def custom_site():
     # instead of showing small and then jumping
     await asyncio.sleep(0.1)
     platform.window.canvas.style.visibility = "visible"
+    platform.window.placeJoystick()
     print("default.tmpl: done")
 
     shell.interactive()
@@ -258,20 +259,20 @@ function show_infobox() {
             right: 0;
         }
 
-        /* phone held upright: game at the top, leaving the space below for the joystick */
+        /* phone held upright: game near the top, leaving the space below for the joystick */
         @media (orientation: portrait) {
-            #canvas { bottom: auto !important; }
+            #canvas { top: 24px !important; bottom: auto !important; }
         }
 
-        /* the touch joystick (see touchControls below); shown only while a finger is down */
+        /* the touch joystick (see touchControls below), placed by placeJoystick() */
         #joystick {
             display: none;
             position: fixed;
             z-index: 20;
             pointer-events: none;
-            width: 100px;
-            height: 100px;
-            margin: -50px 0 0 -50px; /* centered on the finger */
+            width: 120px;
+            height: 120px;
+            margin: -60px 0 0 -60px; /* left/top give its center */
             box-sizing: border-box;
             border-radius: 50%;
             border: 3px solid rgba(255, 255, 255, 0.5);
@@ -281,9 +282,9 @@ function show_infobox() {
             position: absolute;
             left: 50%;
             top: 50%;
-            width: 44px;
-            height: 44px;
-            margin: -22px 0 0 -22px;
+            width: 50px;
+            height: 50px;
+            margin: -25px 0 0 -25px;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.6);
         }
@@ -428,73 +429,98 @@ frameborder="1"
 
     <script type="application/javascript">
 
-    // Touch controls. The page handles every touch itself, so they work anywhere on screen,
-    // including the grey space around the game. Wherever a finger lands becomes the
-    // joystick's center, and dragging away from it moves Yoshi that way, in 8 directions
-    // including diagonals. A quick tap works like "any key", and two quick taps pause.
-    // The game reads window.touchControls every frame (see TouchControls in yoshi.py).
-    const JOYSTICK_RADIUS = 50         // how far the knob travels, in screen pixels
-    const DEAD_ZONE = 10               // smaller drags don't move Yoshi
+    // Touch controls. The page handles every touch itself, and the game reads
+    // window.touchControls every frame (see TouchControls in yoshi.py).
+    // The joystick stays in one spot: centered below the game with a third of it over the
+    // grass when the phone is upright, or in the grey strip to the right when it's sideways.
+    // A finger that lands on it steers Yoshi by dragging, in 8 directions including diagonals,
+    // and keeps steering even if it slides off. Anywhere on screen, a quick tap works like
+    // "any key" and two quick taps pause.
+    const JOYSTICK_RADIUS = 60         // matches #joystick's size
+    const KNOB_TRAVEL = 45             // how far the knob moves from the center
+    const TOUCH_SLOP = 1.4             // a touch this many radii from the center still grabs the joystick
+    const DEAD_ZONE = 10               // closer to the center than this doesn't move Yoshi
     const DIAGONAL_SHARE = 0.38        // sin(22.5 degrees): splits the circle into 8 equal directions
-    const TAP_MAX_MS = 250             // a shorter touch, without dragging, is a tap
+    const TAP_MAX_MS = 250             // a shorter touch, without steering, is a tap
     const DOUBLE_TAP_GAP_MS = 350
     window.touchControls = { left: 0, right: 0, up: 0, down: 0, taps: 0, doubleTaps: 0 }
-    let joystickTouch = null           // the finger driving the joystick; other fingers are ignored
-    let lastTapEndedAt = -Infinity
     const joystickRing = document.getElementById("joystick")
+    const joystickCenter = { x: 0, y: 0 }
+    let currentTouch = null            // the finger being followed; other fingers are ignored
+    let lastTapEndedAt = -Infinity
 
-    function findJoystickTouch(event) {
-        if (!joystickTouch) return null
-        return Array.from(event.changedTouches).find(touch => touch.identifier === joystickTouch.id) || null
-    }
-
-    function setJoystickDirections(left, right, up, down) {
-        Object.assign(touchControls, { left: +left, right: +right, up: +up, down: +down })
-    }
-
-    window.addEventListener("touchstart", event => {
-        event.preventDefault()   // no scrolling, zooming or emulated mouse clicks
-        event.stopPropagation()  // the game sees touches only through touchControls
-        if (joystickTouch) return
-        const touch = event.changedTouches[0]
-        joystickTouch = { id: touch.identifier, centerX: touch.clientX, centerY: touch.clientY,
-                          startedAt: performance.now(), draggedPastDeadZone: false }
-        joystickRing.style.left = touch.clientX + "px"
-        joystickRing.style.top = touch.clientY + "px"
-        moveJoystickKnob(0, 0)
+    // Called whenever the game's size or place changes, and once the game appears.
+    function placeJoystick() {
+        const gameCanvas = document.getElementById("canvas")
+        const hasTouchScreen = matchMedia("(pointer: coarse)").matches
+        if (!hasTouchScreen || gameCanvas.style.visibility !== "visible") return
+        const gameBox = gameCanvas.getBoundingClientRect()
+        if (innerHeight > innerWidth) {
+            joystickCenter.x = innerWidth / 2
+            // a third of the joystick's height above the game's bottom edge, two thirds below
+            joystickCenter.y = gameBox.bottom + JOYSTICK_RADIUS / 3
+        } else {
+            joystickCenter.x = (gameBox.right + innerWidth) / 2
+            joystickCenter.y = innerHeight - JOYSTICK_RADIUS - 16
+        }
+        joystickRing.style.left = joystickCenter.x + "px"
+        joystickRing.style.top = joystickCenter.y + "px"
         joystickRing.style.display = "block"
-    }, { capture: true, passive: false })
+    }
+    window.placeJoystick = placeJoystick
+    new ResizeObserver(placeJoystick).observe(document.getElementById("canvas"))
+    window.addEventListener("resize", () => setTimeout(placeJoystick, 100))
+
+    function findCurrentTouch(event) {
+        if (!currentTouch) return null
+        return Array.from(event.changedTouches).find(touch => touch.identifier === currentTouch.id) || null
+    }
 
     function moveJoystickKnob(offsetX, offsetY) {
         document.getElementById("joystick-knob").style.transform = `translate(${offsetX}px, ${offsetY}px)`
     }
 
+    function steerToward(touch) {
+        const offsetX = touch.clientX - joystickCenter.x
+        const offsetY = touch.clientY - joystickCenter.y
+        const distance = Math.hypot(offsetX, offsetY)
+        const steering = distance > DEAD_ZONE
+        if (steering) currentTouch.steered = true
+        Object.assign(touchControls, {
+            left: +(steering && offsetX / distance < -DIAGONAL_SHARE),
+            right: +(steering && offsetX / distance > DIAGONAL_SHARE),
+            up: +(steering && offsetY / distance < -DIAGONAL_SHARE),
+            down: +(steering && offsetY / distance > DIAGONAL_SHARE),
+        })
+        const knobScale = distance > KNOB_TRAVEL ? KNOB_TRAVEL / distance : 1
+        moveJoystickKnob(offsetX * knobScale, offsetY * knobScale)
+    }
+
+    window.addEventListener("touchstart", event => {
+        event.preventDefault()   // no scrolling, zooming or emulated mouse clicks
+        event.stopPropagation()  // the game sees touches only through touchControls
+        if (currentTouch) return
+        const touch = event.changedTouches[0]
+        const onJoystick = joystickRing.style.display === "block" &&
+            Math.hypot(touch.clientX - joystickCenter.x, touch.clientY - joystickCenter.y) < JOYSTICK_RADIUS * TOUCH_SLOP
+        currentTouch = { id: touch.identifier, startedAt: performance.now(), onJoystick, steered: false }
+        if (onJoystick) steerToward(touch)
+    }, { capture: true, passive: false })
+
     window.addEventListener("touchmove", event => {
         event.preventDefault()
         event.stopPropagation()
-        const touch = findJoystickTouch(event)
-        if (!touch) return
-        const offsetX = touch.clientX - joystickTouch.centerX
-        const offsetY = touch.clientY - joystickTouch.centerY
-        const distance = Math.hypot(offsetX, offsetY)
-        if (distance <= DEAD_ZONE) {
-            setJoystickDirections(false, false, false, false)
-        } else {
-            joystickTouch.draggedPastDeadZone = true
-            setJoystickDirections(offsetX / distance < -DIAGONAL_SHARE, offsetX / distance > DIAGONAL_SHARE,
-                                  offsetY / distance < -DIAGONAL_SHARE, offsetY / distance > DIAGONAL_SHARE)
-        }
-        const knobScale = distance > JOYSTICK_RADIUS ? JOYSTICK_RADIUS / distance : 1
-        moveJoystickKnob(offsetX * knobScale, offsetY * knobScale)
+        const touch = findCurrentTouch(event)
+        if (touch && currentTouch.onJoystick) steerToward(touch)
     }, { capture: true, passive: false })
 
-    function endJoystickTouch(event) {
+    function endTouch(event) {
         event.preventDefault()
         event.stopPropagation()
-        if (!findJoystickTouch(event)) return
+        if (!findCurrentTouch(event)) return
         const now = performance.now()
-        const wasTap = !joystickTouch.draggedPastDeadZone && now - joystickTouch.startedAt < TAP_MAX_MS
-        if (wasTap && joystickTouch.startedAt - lastTapEndedAt < DOUBLE_TAP_GAP_MS) {
+        const wasTap = !currentTouch.steered && now - currentTouch.startedAt < TAP_MAX_MS
+        if (wasTap && currentTouch.startedAt - lastTapEndedAt < DOUBLE_TAP_GAP_MS) {
             touchControls.doubleTaps += 1
             lastTapEndedAt = -Infinity   // a third tap starts over
         } else if (wasTap) {
@@ -503,12 +529,12 @@ frameborder="1"
         } else {
             lastTapEndedAt = -Infinity
         }
-        joystickTouch = null
-        setJoystickDirections(false, false, false, false)
-        joystickRing.style.display = "none"
+        currentTouch = null
+        Object.assign(touchControls, { left: 0, right: 0, up: 0, down: 0 })
+        moveJoystickKnob(0, 0)
     }
-    window.addEventListener("touchend", endJoystickTouch, { capture: true, passive: false })
-    window.addEventListener("touchcancel", endJoystickTouch, { capture: true, passive: false })
+    window.addEventListener("touchend", endTouch, { capture: true, passive: false })
+    window.addEventListener("touchcancel", endTouch, { capture: true, passive: false })
 
     globalThis.__canvas_resized = (self, ecw, ech) => {
         console.warn("TODO: panda3d canvas monitor", self, ecw, ech)
