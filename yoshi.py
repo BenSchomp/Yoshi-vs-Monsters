@@ -185,8 +185,23 @@ async def waitForKeyToContinue():
 
 PAUSE_KEYS = (K_ESCAPE, K_SPACE) # either one pauses, and either one resumes
 
+async def confirmRestart(gameScreenBehindMenu):
+    """Returns True if the player confirms with Y; N or Esc cancels."""
+    windowSurface.blit(gameScreenBehindMenu, (0, 0))
+    drawTextBox(['Are you sure?', 'All progress will be lost.', '',
+                 '[y] Yes   /   [n] No'], windowSurface, spacing=1)
+    pygame.display.update()
+    while True:
+        pressedKey = await waitForKeyPress()
+        if pressedKey == ord('y'):
+            return True
+        if pressedKey in (ord('n'), K_ESCAPE):
+            return False
+
 async def showPauseMenu():
-    """Esc pauses the game. The menu lists the keys and can toggle music and sounds."""
+    """Esc or space pauses the game. The menu lists the keys, can toggle music and
+    sounds, and can restart. Returns True if the player chose to restart."""
+    restartRequested = False
     gameScreenBehindMenu = windowSurface.copy()
     # Pause playback rather than turning the volume down: a sound cut off by a
     # volume change mid-play could get stuck repeating in the browser.
@@ -197,6 +212,7 @@ async def showPauseMenu():
                                   '-- Use the arrow keys to move --',
                                   '[m] mute: ' + onOff(muted),
                                   '[s] sound effects: ' + onOff(soundEffectsOn),
+                                  '[r] restart',
                                   '[esc] or [space] resume'])
         windowSurface.blit(gameScreenBehindMenu, (0, 0))
         drawTextBox(menuLines, windowSurface, spacing=1)
@@ -207,10 +223,17 @@ async def showPauseMenu():
             terminate()
         elif toggleMusicOrSoundsForKey(pressedKey): # playback is paused, so this stays silent until resume
             pass
+        elif pressedKey == ord('r'):
+            if await confirmRestart(gameScreenBehindMenu):
+                restartRequested = True
+                break
         elif pressedKey in PAUSE_KEYS:
             break
     pygame.mixer.unpause()
     pygame.mixer.music.unpause()
+    if restartRequested:
+        pygame.mixer.stop() # drop whatever sound effects were mid-play
+    return restartRequested
 
 
 ################################################################################
@@ -297,6 +320,7 @@ async def main():
         appleCount = 0
         numberOfLives = 3
         gameWon = False
+        restartRequested = False
         highScoreText = ''
 
         sounds['yoshi'].play()
@@ -348,7 +372,9 @@ async def main():
 
                         toggleMusicOrSoundsForKey(event.key)
                         if event.key in PAUSE_KEYS:
-                            await showPauseMenu()
+                            restartRequested = await showPauseMenu()
+                            if restartRequested:
+                                playing = False
                             moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
 
                 # end event processing
@@ -489,6 +515,9 @@ async def main():
 
             # -- end of event loop (still playing?) --
 
+            if restartRequested:
+                break # skip the lost-life sequence
+
             # in case the music is still going
             pygame.mixer.music.stop()
 
@@ -515,6 +544,11 @@ async def main():
             pygame.event.clear()
 
         # -- end of game loop (still alive?) --
+
+        if restartRequested: # straight into a new game: no game over screen or high score
+            pygame.mixer.music.stop()
+            pygame.event.clear()
+            continue
 
         # game over :(
         pygame.mixer.music.stop()
