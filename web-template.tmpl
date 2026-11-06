@@ -167,6 +167,28 @@ config = {
     fb_height : "{{cookiecutter.height}}"
 }
 
+// iPhones only let a page start sound from a tap or key press, and the game's sound engine
+// only tries once, on the first touchstart, which iOS doesn't count. So keep track of every
+// audio context the game makes, and on every tap or key press, wake up any that are asleep.
+// The phone's own volume buttons and silent switch still apply.
+const allAudioContexts = []
+for (const audioContextName of ["AudioContext", "webkitAudioContext"]) {
+    const OriginalAudioContext = window[audioContextName]
+    if (!OriginalAudioContext) continue
+    window[audioContextName] = class extends OriginalAudioContext {
+        constructor(...options) {
+            super(...options)
+            allAudioContexts.push(this)
+        }
+    }
+}
+function wakeUpAudio() {
+    for (const audioContext of allAudioContexts)
+        if (audioContext.state !== "running") audioContext.resume()
+}
+for (const eventName of ["touchend", "click", "keydown"])
+    window.addEventListener(eventName, wakeUpAudio, true)
+
 function show_infobox() {
     // centered by CSS (see #infobox), so it's already in place before this runs
     infobox.style.display = "block";
