@@ -435,12 +435,11 @@ frameborder="1"
     // The joystick stays in one spot: centered below the game with a third of it over the
     // grass when the phone is upright. When it's sideways, the joystick sits a third of the way up,
     // starting in the grey strip on the right, and moves to whichever side strip a finger last landed in, for left thumbs.
-    // A finger that lands on it steers Yoshi by dragging, in 8 directions including diagonals,
-    // and keeps steering even if it slides off. Anywhere on screen, a quick tap works like
-    // "any key" and two quick taps pause.
+    // During play, wherever a finger lands becomes the steering center: dragging away from that
+    // spot steers Yoshi in 8 directions including diagonals, and the knob on the fixed joystick
+    // shows the drag. Anywhere on screen, a quick tap works like "any key" and two quick taps pause.
     const JOYSTICK_RADIUS = 45         // matches #joystick's size
     const KNOB_TRAVEL = 34             // how far the knob moves from the center
-    const TOUCH_SLOP = 1.6             // a touch this many radii from the center still grabs the joystick
     const DEAD_ZONE = 10               // closer to the center than this doesn't move Yoshi
     const DIAGONAL_SHARE = 0.38        // sin(22.5 degrees): splits the circle into 8 equal directions
     const TAP_MAX_MS = 250             // a shorter touch, without steering, is a tap
@@ -503,8 +502,8 @@ frameborder="1"
     }
 
     function steerToward(touch) {
-        const offsetX = touch.clientX - joystickCenter.x
-        const offsetY = touch.clientY - joystickCenter.y
+        const offsetX = touch.clientX - currentTouch.startX
+        const offsetY = touch.clientY - currentTouch.startY
         const distance = Math.hypot(offsetX, offsetY)
         const steering = distance > DEAD_ZONE
         if (steering) currentTouch.steered = true
@@ -524,10 +523,10 @@ frameborder="1"
         if (currentTouch) return
         const touch = event.changedTouches[0]
         moveSidewaysJoystickToSideOf(touch)
-        const onJoystick = joystickRing.style.display === "block" &&
-            Math.hypot(touch.clientX - joystickCenter.x, touch.clientY - joystickCenter.y) < JOYSTICK_RADIUS * TOUCH_SLOP
-        currentTouch = { id: touch.identifier, startedAt: performance.now(), onJoystick, steered: false }
-        if (onJoystick) {
+        const steersJoystick = joystickRing.style.display === "block" // only during play
+        currentTouch = { id: touch.identifier, startedAt: performance.now(), steersJoystick, steered: false,
+                         startX: touch.clientX, startY: touch.clientY }
+        if (steersJoystick) {
             document.getElementById("joystick-knob").style.display = "block"
             steerToward(touch)
         }
@@ -537,7 +536,7 @@ frameborder="1"
         event.preventDefault()
         event.stopPropagation()
         const touch = findCurrentTouch(event)
-        if (touch && currentTouch.onJoystick) steerToward(touch)
+        if (touch && currentTouch.steersJoystick) steerToward(touch)
     }, { capture: true, passive: false })
 
     function endTouch(event) {
