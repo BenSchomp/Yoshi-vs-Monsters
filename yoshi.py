@@ -306,8 +306,8 @@ async def main():
                  '',
                  'PRESS ANY KEY OR CLICK TO START',
                  '',
-                 'v0.5 November 6, 2026',
                  'v0.4 March 29, 2011',
+                 'v0.5 November 6, 2026',
                  'by Elsie, Charlie & Ben Schomp']), windowSurface, spacing=1)
     pygame.display.update()
     await waitForKeyToContinue()
