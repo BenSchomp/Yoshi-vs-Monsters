@@ -135,44 +135,63 @@ def drawTextBox(text, parent, spacing=2):
         textbox.blit(t, textrect)
         y += linesize * spacing
 
-async def showPauseMenu(mute):
-    """Esc pauses the game. Quitting is only possible from here (and only on desktop).
-    Returns the mute setting, which can be changed while paused."""
+# M toggles the music and S toggles the sound effects, independently.
+musicMuted = False
+soundEffectsMuted = False
+
+def applyVolumes(silenceEverything=False):
+    for s in sounds.values():
+        s.set_volume(0 if silenceEverything or soundEffectsMuted else SOUND_VOL)
+    pygame.mixer.music.set_volume(0 if silenceEverything or musicMuted else MUSIC_VOL)
+
+def toggleMusicOrSoundsForKey(pressedKey, applyNow=True):
+    """Handles M and S. Returns True if the key was one of them."""
+    global musicMuted, soundEffectsMuted
+    if pressedKey == ord('m'):
+        musicMuted = not musicMuted
+    elif pressedKey == ord('s'):
+        soundEffectsMuted = not soundEffectsMuted
+    else:
+        return False
+    if applyNow:
+        applyVolumes()
+    return True
+
+def onOff(muted):
+    return 'OFF' if muted else 'ON'
+
+def withQuitHint(lines):
+    """The quit option only exists on desktop; a browser tab can't quit."""
+    return lines if RUNNING_IN_BROWSER else lines + ['', '[q] quit']
+
+async def waitForKeyToContinue():
+    """Title and game-over screens: Q quits (desktop only), any other key continues."""
+    pressedKey = await waitForKeyPress()
+    if pressedKey == ord('q'):
+        terminate()
+
+async def showPauseMenu():
+    """Esc pauses the game. The menu lists the keys and can toggle music and sounds."""
     gameScreenBehindMenu = windowSurface.copy()
-    toggleMute(False) # silence everything while paused
+    applyVolumes(silenceEverything=True)
     while True:
-        menuLines = ['PAUSED', '',
-                     '-- Use the arrow keys to move --',
-                     '[m] sound: ' + ('OFF' if mute else 'ON'),
-                     '[esc] resume']
-        if not RUNNING_IN_BROWSER:
-            menuLines.append('[q] quit')
+        menuLines = withQuitHint(['PAUSED', '',
+                                  '-- Use the arrow keys to move --',
+                                  '[m] music: ' + onOff(musicMuted),
+                                  '[s] sounds: ' + onOff(soundEffectsMuted),
+                                  '[esc] resume'])
         windowSurface.blit(gameScreenBehindMenu, (0, 0))
         drawTextBox(menuLines, windowSurface, spacing=1)
         pygame.display.update()
 
         pressedKey = await waitForKeyPress()
-        if pressedKey == ord('q') and not RUNNING_IN_BROWSER:
+        if pressedKey == ord('q'):
             terminate()
-        elif pressedKey == ord('m'):
-            mute = not mute
+        elif toggleMusicOrSoundsForKey(pressedKey, applyNow=False): # stay silent until resumed
+            pass
         elif pressedKey == K_ESCAPE:
             break
-    toggleMute(not mute) # restore the chosen sound setting
-    return mute
-
-def toggleMute(mute):
-    mute = not mute
-    if mute:
-        for key,s in sounds.items():
-            s.set_volume(0)
-        pygame.mixer.music.set_volume(0)
-    else:
-        for key,s in sounds.items():
-            s.set_volume(SOUND_VOL)
-        pygame.mixer.music.set_volume(MUSIC_VOL)
-
-    return mute
+    applyVolumes()
 
 
 ################################################################################
@@ -201,7 +220,7 @@ sounds = {'gameOver': pygame.mixer.Sound('data/gameover.ogg'),
           'ba-ding':  pygame.mixer.Sound('data/ba-ding.ogg'),
           'woah':     pygame.mixer.Sound('data/woah.ogg'), }
 pygame.mixer.music.load('data/confutatis.ogg')
-mute = toggleMute(True)
+applyVolumes()
 
 # setup images
 yoshiImage = pygame.image.load('data/yoshi.png')
@@ -226,24 +245,23 @@ monsterSizes = [[40,43], # apple1.png
                 [68,63], [70,73], [51,58], [53,76]]
 
 async def main():
-    global mute, facingLeft, yoshiImage
+    global facingLeft, yoshiImage
     ch = None # sound channel of the most recent effect
     # draw welcome screen
     windowSurface.fill(SKY_COLOR[0])
-    drawTextBox(['Yoshi vs. Monsters!!!',
+    drawTextBox(withQuitHint(['Yoshi vs. Monsters!!!',
                  '',
                  'Avoid the Monsters, eat the Apples.',
                  '',
                  '-- Use the arrow keys to move --',
-                 '[esc] pause : [m]ute',
+                 '[esc] pause : [m]usic : [s]ounds',
                  '',
                  'PRESS ANY KEY TO START',
                  '',
                  'v0.4 March 29, 2011',
-                 'by Elsie, Charlie & Ben Schomp',
-                 ], windowSurface, spacing=1)
+                 'by Elsie, Charlie & Ben Schomp']), windowSurface, spacing=1)
     pygame.display.update()
-    await waitForKeyPress()
+    await waitForKeyToContinue()
 
     # load high score
     highScore = loadHighScore()
@@ -304,9 +322,9 @@ async def main():
                         if event.key == K_UP:    moveUp = False
                         if event.key == K_DOWN:  moveDown = False
 
-                        if event.key == ord('m'): mute = toggleMute(mute)
+                        toggleMusicOrSoundsForKey(event.key)
                         if event.key == K_ESCAPE:
-                            mute = await showPauseMenu(mute)
+                            await showPauseMenu()
                             moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
 
                 # end event processing
@@ -483,23 +501,23 @@ async def main():
             saveHighScore(highScore)
 
         if gameWon:
-            drawTextBox(['CONGRATULATIONS!!!', '',
+            drawTextBox(withQuitHint(['CONGRATULATIONS!!!', '',
                          'You beat Yoshi vs. Monsters!',
                          '',
                          'Coming soon:',
                          'Yoshi vs. Robots!',
                          '', highScoreText, '',
-                         'Press any key to play again...'],
+                         'Press any key to play again...']),
                          windowSurface, spacing=1)
         else:
-            drawTextBox(['GAME OVER', '', highScoreText, '',
-                         'Press any key to play again...'],
+            drawTextBox(withQuitHint(['GAME OVER', '', highScoreText, '',
+                         'Press any key to play again...']),
                          windowSurface, spacing=1)
 
         pygame.display.update()
         await pauseWithoutFreezing(ONE_SEC)
         pygame.event.clear()
-        await waitForKeyPress()
+        await waitForKeyToContinue()
 
         sounds['gameOver'].stop()
         gameOver = False
