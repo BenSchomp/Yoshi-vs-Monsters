@@ -183,6 +183,8 @@ async def waitForKeyToContinue():
     if pressedKey == ord('q'):
         terminate()
 
+PAUSE_KEYS = (K_ESCAPE, K_SPACE) # either one pauses, and either one resumes
+
 async def showPauseMenu():
     """Esc pauses the game. The menu lists the keys and can toggle music and sounds."""
     gameScreenBehindMenu = windowSurface.copy()
@@ -195,7 +197,7 @@ async def showPauseMenu():
                                   '-- Use the arrow keys to move --',
                                   '[m] mute: ' + onOff(muted),
                                   '[s] sound effects: ' + onOff(soundEffectsOn),
-                                  '[esc] resume'])
+                                  '[esc] or [space] resume'])
         windowSurface.blit(gameScreenBehindMenu, (0, 0))
         drawTextBox(menuLines, windowSurface, spacing=1)
         pygame.display.update()
@@ -205,7 +207,7 @@ async def showPauseMenu():
             terminate()
         elif toggleMusicOrSoundsForKey(pressedKey): # playback is paused, so this stays silent until resume
             pass
-        elif pressedKey == K_ESCAPE:
+        elif pressedKey in PAUSE_KEYS:
             break
     pygame.mixer.unpause()
     pygame.mixer.music.unpause()
@@ -276,7 +278,7 @@ async def main():
                  'Avoid the Monsters, eat the Apples.',
                  '',
                  '-- Use the arrow keys to move --',
-                 '[esc] pause : [m]ute : [s]ounds',
+                 '[esc]/[space] pause : [m]ute : [s]ounds',
                  '',
                  'PRESS ANY KEY OR CLICK TO START',
                  '',
@@ -345,7 +347,7 @@ async def main():
                         if event.key == K_DOWN:  moveDown = False
 
                         toggleMusicOrSoundsForKey(event.key)
-                        if event.key == K_ESCAPE:
+                        if event.key in PAUSE_KEYS:
                             await showPauseMenu()
                             moveLeft = moveRight = moveUp = moveDown = False # keys may have been released while paused
 
