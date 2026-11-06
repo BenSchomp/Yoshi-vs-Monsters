@@ -445,7 +445,9 @@ frameborder="1"
     const DIAGONAL_SHARE = 0.38        // sin(22.5 degrees): splits the circle into 8 equal directions
     const TAP_MAX_MS = 250             // a shorter touch, without steering, is a tap
     const DOUBLE_TAP_GAP_MS = 350
-    window.touchControls = { left: 0, right: 0, up: 0, down: 0, taps: 0, doubleTaps: 0 }
+    window.touchControls = { left: 0, right: 0, up: 0, down: 0, taps: 0, doubleTaps: 0,
+                             lastTapX: 0, lastTapY: 0, // in game pixels, for tapping buttons on menus
+                             isTouchScreen: +matchMedia("(pointer: coarse)").matches }
     const joystickRing = document.getElementById("joystick")
     const joystickCenter = { x: 0, y: 0 }
     let currentTouch = null            // the finger being followed; other fingers are ignored
@@ -541,9 +543,16 @@ frameborder="1"
     function endTouch(event) {
         event.preventDefault()
         event.stopPropagation()
-        if (!findCurrentTouch(event)) return
+        const touch = findCurrentTouch(event)
+        if (!touch) return
         const now = performance.now()
         const wasTap = !currentTouch.steered && now - currentTouch.startedAt < TAP_MAX_MS
+        if (wasTap) {
+            const gameCanvas = document.getElementById("canvas")
+            const gameBox = gameCanvas.getBoundingClientRect()
+            touchControls.lastTapX = (touch.clientX - gameBox.left) * gameCanvas.width / gameBox.width
+            touchControls.lastTapY = (touch.clientY - gameBox.top) * gameCanvas.height / gameBox.height
+        }
         if (wasTap && currentTouch.startedAt - lastTapEndedAt < DOUBLE_TAP_GAP_MS) {
             touchControls.doubleTaps += 1
             lastTapEndedAt = -Infinity   // a third tap starts over

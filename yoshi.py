@@ -53,7 +53,7 @@ def terminate():
 
 async def waitForKeyPress():
     """Waits for a key to be released and returns which key it was,
-    or None for a click or a tap."""
+    or None for a click or a tap (and then touchControls.lastTapPosition says where)."""
     touchControls.takeNewTaps() # forget taps from before this wait started
     touchControls.showJoystick(False) # every wait for a key is a menu or message screen
     while True:
@@ -65,6 +65,7 @@ async def waitForKeyPress():
             if event.type == KEYUP:
                 return event.key
             if event.type == MOUSEBUTTONUP: # a click works like "any key"
+                touchControls.lastTapPosition = event.pos
                 return None
         pygame.display.update() # keep the screen drawn even if the browser resized the canvas
         await asyncio.sleep(1 / FPS) # let the browser draw and deliver key events, without spinning the CPU
@@ -108,16 +109,32 @@ def drawText(text, font, surface, x, y):
     textrect.topleft = (x, y)
     surface.blit(textobj, textrect)
 
+class Button:
+    """A text box line drawn as a big outlined button that a finger can tap (see drawTextBox)."""
+    WIDTH = 320
+    HEIGHT = 54
+    GAP = 12
+
+    def __init__(self, label):
+        self.label = label
+
 def drawTextBox(text, parent, spacing=2):
-    """Each line is a string (drawn in `font`) or a (string, font) pair for a different size."""
-    linesWithFonts = [line if isinstance(line, tuple) else (line, font) for line in text]
-    textobjs = [(lineFont.render(line, 1, TEXT_COLOR), lineFont.get_linesize())
-                for line, lineFont in linesWithFonts]
+    """Each line is a string (drawn in `font`), a (string, font) pair for a different size,
+    or a Button. Returns {button label: its rectangle on `parent`} for tapping."""
+    rows = [] # (rendered text, row height, height after the last row, is a button)
+    for line in text:
+        if isinstance(line, Button):
+            rows.append((font.render(line.label, 1, TEXT_COLOR), Button.HEIGHT + Button.GAP, Button.HEIGHT, True))
+        else:
+            lineText, lineFont = line if isinstance(line, tuple) else (line, font)
+            linesize = lineFont.get_linesize()
+            rows.append((lineFont.render(lineText, 1, TEXT_COLOR), linesize * spacing, linesize, False))
     padding = 40
 
-    # each line takes its font's height, times the spacing (except after the last line)
-    boxwidth = max(t.get_width() for t, _ in textobjs)
-    boxheight = sum(linesize * spacing for _, linesize in textobjs) - textobjs[-1][1] * (spacing - 1)
+    # each row takes its height, except the last, which skips the spacing after it
+    hasButtons = any(isButton for _, _, _, isButton in rows)
+    boxwidth = max([rendered.get_width() for rendered, _, _, _ in rows] + [Button.WIDTH if hasButtons else 0])
+    boxheight = sum(rowHeight for _, rowHeight, _, _ in rows[:-1]) + rows[-1][2]
 
     # add margins
     boxwidth += padding
@@ -133,13 +150,27 @@ def drawTextBox(text, parent, spacing=2):
     textbox.fill((0,0,0))
     pygame.draw.rect(parent, TEXT_COLOR, textboxRect, 2)
 
-    # blit each textobj on the textbox surface
+    # blit each line on the textbox surface, outlining buttons
+    buttonRects = {}
     y = padding / 2
-    for t, linesize in textobjs:
-        textrect = t.get_rect()
-        textrect.center = (boxwidth / 2, y + (linesize / 2))
-        textbox.blit(t, textrect)
-        y += linesize * spacing
+    for (rendered, rowHeight, lastRowHeight, isButton), line in zip(rows, text):
+        textrect = rendered.get_rect()
+        textrect.center = (boxwidth / 2, y + lastRowHeight / 2)
+        textbox.blit(rendered, textrect)
+        if isButton:
+            buttonRect = pygame.Rect(0, 0, Button.WIDTH, Button.HEIGHT)
+            buttonRect.center = textrect.center
+            pygame.draw.rect(textbox, TEXT_COLOR, buttonRect, 2, border_radius=10)
+            buttonRects[line.label] = buttonRect.move(textboxRect.topleft)
+        y += rowHeight
+    return buttonRects
+
+def tappedButton(buttonRects):
+    """Which button label the last tap or click landed on, or None."""
+    for label, buttonRect in buttonRects.items():
+        if buttonRect.collidepoint(touchControls.lastTapPosition):
+            return label
+    return None
 
 # M is "mute": it silences everything, and a second M brings back the music
 # and whatever the sound effects were before muting.
@@ -199,6 +230,11 @@ class TouchControls:
         self.tapsSeen = 0
         self.doubleTapsSeen = 0
         self.joystickVisible = False
+        self.lastTapPosition = (-1, -1) # in game pixels; also set by mouse clicks
+
+    def isTouchScreen(self):
+        """True on phones and tablets, where the screens talk about the joystick and taps."""
+        return RUNNING_IN_BROWSER and bool(platform.window.touchControls.isTouchScreen)
 
     def showJoystick(self, visible):
         """Shows the joystick during play and hides it on the title, pause and game over screens."""
@@ -221,21 +257,28 @@ class TouchControls:
         taps, doubleTaps = int(controls.taps), int(controls.doubleTaps)
         newTaps, newDoubleTaps = taps - self.tapsSeen, doubleTaps - self.doubleTapsSeen
         self.tapsSeen, self.doubleTapsSeen = taps, doubleTaps
+        if newTaps or newDoubleTaps:
+            self.lastTapPosition = (float(controls.lastTapX), float(controls.lastTapY))
         return newTaps, newDoubleTaps
 
 touchControls = TouchControls()
 
 async def confirmRestart(gameScreenBehindMenu):
-    """Returns True if the player confirms with Y; N or Esc cancels."""
+    """Returns True if the player confirms with Y (or the Yes button); N, Esc or No cancels."""
     windowSurface.blit(gameScreenBehindMenu, (0, 0))
-    drawTextBox(['Are you sure?', 'All progress will be lost.', '',
-                 '[y] Yes   /   [n] No'], windowSurface, spacing=1)
+    if touchControls.isTouchScreen():
+        choices = [Button('Yes'), Button('No')]
+    else:
+        choices = ['[y] Yes   /   [n] No']
+    buttonRects = drawTextBox(['Are you sure?', 'All progress will be lost.', ''] + choices,
+                              windowSurface, spacing=1)
     pygame.display.update()
     while True:
         pressedKey = await waitForKeyPress()
-        if pressedKey == ord('y'):
+        button = tappedButton(buttonRects) if pressedKey is None else None
+        if pressedKey == ord('y') or button == 'Yes':
             return True
-        if pressedKey in (ord('n'), K_ESCAPE):
+        if pressedKey in (ord('n'), K_ESCAPE) or button == 'No':
             return False
 
 async def showPauseMenu():
@@ -248,17 +291,30 @@ async def showPauseMenu():
     pygame.mixer.pause()
     pygame.mixer.music.pause()
     while True:
-        menuLines = withQuitHint(['PAUSED', '',
-                                  '-- Use the arrow keys to move --',
-                                  '[m] mute: ' + onOff(muted),
-                                  '[s] sound effects: ' + onOff(soundEffectsOn),
-                                  '[r] restart',
-                                  '[esc], [space] or tap: resume'])
+        if touchControls.isTouchScreen():
+            menuLines = ['PAUSED', '',
+                         Button('Mute: ' + onOff(muted)),
+                         Button('Sound effects: ' + onOff(soundEffectsOn)),
+                         Button('Restart'),
+                         '',
+                         'Tap anywhere else to resume']
+        else:
+            menuLines = withQuitHint(['PAUSED', '',
+                                      '-- Use the arrow keys to move --',
+                                      '[m] mute: ' + onOff(muted),
+                                      '[s] sound effects: ' + onOff(soundEffectsOn),
+                                      '[r] restart',
+                                      '[esc], [space] or click: resume'])
         windowSurface.blit(gameScreenBehindMenu, (0, 0))
-        drawTextBox(menuLines, windowSurface, spacing=1)
+        buttonRects = drawTextBox(menuLines, windowSurface, spacing=1)
         pygame.display.update()
 
         pressedKey = await waitForKeyPress()
+        if pressedKey is None: # a tap or click: buttons work like their keys
+            button = tappedButton(buttonRects) or ''
+            pressedKey = (ord('m') if button.startswith('Mute') else
+                          ord('s') if button.startswith('Sound effects') else
+                          ord('r') if button == 'Restart' else None)
         if pressedKey == ord('q'):
             terminate()
         elif toggleMusicOrSoundsForKey(pressedKey): # playback is paused, so this stays silent until resume
@@ -337,14 +393,20 @@ async def main():
     ch = None # sound channel of the most recent effect
     # draw welcome screen
     windowSurface.fill(SKY_COLOR[0])
+    if touchControls.isTouchScreen():
+        howToPlay = ['-- Drag the joystick to move --',
+                     'Double-tap to pause',
+                     '',
+                     'TAP TO START']
+    else:
+        howToPlay = ['-- Use the arrow keys to move --',
+                     '[esc]/[space] pause : [m]ute : [s]ounds',
+                     '',
+                     'PRESS ANY KEY OR CLICK TO START']
     drawTextBox(withQuitHint(['Yoshi vs. Monsters!!!',
                  '',
                  'Avoid the Monsters, eat the Apples.',
-                 '',
-                 '-- Use the arrow keys to move --',
-                 '[esc]/[space] pause : [m]ute : [s]ounds',
-                 '',
-                 'PRESS ANY KEY OR CLICK TO START',
+                 ''] + howToPlay + [
                  '',
                  ('v0.4 March 29, 2011', font_original_version_line),
                  'v0.5 November 6, 2026',
@@ -605,6 +667,7 @@ async def main():
             highScoreText = 'New High Score!'
             saveHighScore(highScore)
 
+        playAgainHint = 'Tap to play again...' if touchControls.isTouchScreen() else 'Press any key to play again...'
         if gameWon:
             drawTextBox(withQuitHint(['CONGRATULATIONS!!!', '',
                          'You beat Yoshi vs. Monsters!',
@@ -612,11 +675,11 @@ async def main():
                          'Coming soon:',
                          'Yoshi vs. Robots!',
                          '', highScoreText, '',
-                         'Press any key to play again...']),
+                         playAgainHint]),
                          windowSurface, spacing=1)
         else:
             drawTextBox(withQuitHint(['GAME OVER', '', highScoreText, '',
-                         'Press any key to play again...']),
+                         playAgainHint]),
                          windowSurface, spacing=1)
 
         pygame.display.update()
