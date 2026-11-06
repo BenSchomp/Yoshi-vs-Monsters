@@ -270,23 +270,24 @@ function show_infobox() {
             position: fixed;
             z-index: 20;
             pointer-events: none;
-            width: 120px;
-            height: 120px;
-            margin: -60px 0 0 -60px; /* left/top give its center */
+            width: 90px;
+            height: 90px;
+            margin: -45px 0 0 -45px; /* left/top give its center */
             box-sizing: border-box;
             border-radius: 50%;
-            border: 3px solid rgba(255, 255, 255, 0.5);
-            background: rgba(255, 255, 255, 0.12);
+            border: 3px solid rgba(255, 255, 255, 0.375);
+            background: rgba(255, 255, 255, 0.09);
         }
         #joystick-knob {
+            display: none; /* shown only while a finger is steering */
             position: absolute;
             left: 50%;
             top: 50%;
-            width: 50px;
-            height: 50px;
-            margin: -25px 0 0 -25px;
+            width: 38px;
+            height: 38px;
+            margin: -19px 0 0 -19px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.45);
         }
 
         body {
@@ -432,13 +433,14 @@ frameborder="1"
     // Touch controls. The page handles every touch itself, and the game reads
     // window.touchControls every frame (see TouchControls in yoshi.py).
     // The joystick stays in one spot: centered below the game with a third of it over the
-    // grass when the phone is upright, or in the grey strip to the right when it's sideways.
+    // grass when the phone is upright. When it's sideways, the joystick starts in the grey strip
+    // on the right and moves to whichever side strip a finger last landed in, for left thumbs.
     // A finger that lands on it steers Yoshi by dragging, in 8 directions including diagonals,
     // and keeps steering even if it slides off. Anywhere on screen, a quick tap works like
     // "any key" and two quick taps pause.
-    const JOYSTICK_RADIUS = 60         // matches #joystick's size
-    const KNOB_TRAVEL = 45             // how far the knob moves from the center
-    const TOUCH_SLOP = 1.4             // a touch this many radii from the center still grabs the joystick
+    const JOYSTICK_RADIUS = 45         // matches #joystick's size
+    const KNOB_TRAVEL = 34             // how far the knob moves from the center
+    const TOUCH_SLOP = 1.6             // a touch this many radii from the center still grabs the joystick
     const DEAD_ZONE = 10               // closer to the center than this doesn't move Yoshi
     const DIAGONAL_SHARE = 0.38        // sin(22.5 degrees): splits the circle into 8 equal directions
     const TAP_MAX_MS = 250             // a shorter touch, without steering, is a tap
@@ -448,6 +450,7 @@ frameborder="1"
     const joystickCenter = { x: 0, y: 0 }
     let currentTouch = null            // the finger being followed; other fingers are ignored
     let lastTapEndedAt = -Infinity
+    let sidewaysJoystickSide = "right"
 
     // Called whenever the game's size or place changes, and once the game appears.
     function placeJoystick() {
@@ -460,7 +463,7 @@ frameborder="1"
             // a third of the joystick's height above the game's bottom edge, two thirds below
             joystickCenter.y = gameBox.bottom + JOYSTICK_RADIUS / 3
         } else {
-            joystickCenter.x = (gameBox.right + innerWidth) / 2
+            joystickCenter.x = sidewaysJoystickSide === "right" ? (gameBox.right + innerWidth) / 2 : gameBox.left / 2
             joystickCenter.y = innerHeight - JOYSTICK_RADIUS - 16
         }
         joystickRing.style.left = joystickCenter.x + "px"
@@ -470,6 +473,16 @@ frameborder="1"
     window.placeJoystick = placeJoystick
     new ResizeObserver(placeJoystick).observe(document.getElementById("canvas"))
     window.addEventListener("resize", () => setTimeout(placeJoystick, 100))
+
+    function moveSidewaysJoystickToSideOf(touch) {
+        if (innerHeight > innerWidth) return
+        const gameBox = document.getElementById("canvas").getBoundingClientRect()
+        const touchedSide = touch.clientX < gameBox.left ? "left" : touch.clientX > gameBox.right ? "right" : null
+        if (touchedSide && touchedSide !== sidewaysJoystickSide) {
+            sidewaysJoystickSide = touchedSide
+            placeJoystick()
+        }
+    }
 
     function findCurrentTouch(event) {
         if (!currentTouch) return null
@@ -501,10 +514,14 @@ frameborder="1"
         event.stopPropagation()  // the game sees touches only through touchControls
         if (currentTouch) return
         const touch = event.changedTouches[0]
+        moveSidewaysJoystickToSideOf(touch)
         const onJoystick = joystickRing.style.display === "block" &&
             Math.hypot(touch.clientX - joystickCenter.x, touch.clientY - joystickCenter.y) < JOYSTICK_RADIUS * TOUCH_SLOP
         currentTouch = { id: touch.identifier, startedAt: performance.now(), onJoystick, steered: false }
-        if (onJoystick) steerToward(touch)
+        if (onJoystick) {
+            document.getElementById("joystick-knob").style.display = "block"
+            steerToward(touch)
+        }
     }, { capture: true, passive: false })
 
     window.addEventListener("touchmove", event => {
@@ -532,6 +549,7 @@ frameborder="1"
         currentTouch = null
         Object.assign(touchControls, { left: 0, right: 0, up: 0, down: 0 })
         moveJoystickKnob(0, 0)
+        document.getElementById("joystick-knob").style.display = "none"
     }
     window.addEventListener("touchend", endTouch, { capture: true, passive: false })
     window.addEventListener("touchcancel", endTouch, { capture: true, passive: false })
