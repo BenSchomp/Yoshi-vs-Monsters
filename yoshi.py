@@ -57,6 +57,8 @@ async def waitForKeyPress():
                 terminate()
             if event.type == KEYUP:
                 return event.key
+            if event.type == MOUSEBUTTONUP: # a click works like "any key"
+                return None
         await asyncio.sleep(0) # let the browser draw and deliver key events
 
 # Pauses keep pumping window events. If a window stops reading events for a
@@ -268,7 +270,7 @@ async def main():
                  '-- Use the arrow keys to move --',
                  '[esc] pause : [m]ute : [s]ounds',
                  '',
-                 'PRESS ANY KEY TO START',
+                 'PRESS ANY KEY OR CLICK TO START',
                  '',
                  'v0.4 March 29, 2011',
                  'by Elsie, Charlie & Ben Schomp']), windowSurface, spacing=1)

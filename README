@@ -15,7 +15,7 @@ Play on desktop (Python 3):
 
 Play in a browser:
   pip install pygbag
-  pygbag .          (then open http://localhost:8000)
+  pygbag --ume_block 0 .     (then open http://localhost:8000)
 
 Pushing to master builds the browser version and
 publishes it to GitHub Pages (.github/workflows/deploy-web.yml).
