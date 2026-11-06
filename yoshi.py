@@ -299,9 +299,11 @@ async def main():
                     monsterType = random.randint(0,NUMBER_OF_MONSTERS-1)
                     monsterWidth = int(monsterSizes[monsterType][0] * monsterScale)
                     monsterHeight = int(monsterSizes[monsterType][1] * monsterScale)
+                    monsterSurface = pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight))
                     newMonster = {'rect': pygame.Rect(random.randint(0, GAME_WIDTH-monsterWidth),0, monsterWidth, monsterHeight),
                                   'speed': random.randint(MONSTER_MIN_SPEED+level, MONSTER_MAX_SPEED+level),
-                                  'surface': pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight)),
+                                  'surface': monsterSurface,
+                                  'mask': pygame.mask.from_surface(monsterSurface), # opaque pixels only, for collisions
                                   'type': monsterType,
                                   }
                     monsters.append(newMonster)
@@ -361,8 +363,15 @@ async def main():
                     windowSurface.blit(eggImage, eggRect)
 
                 # check if any monster has hit yoshi
+                # Monsters only count when their visible pixels overlap Yoshi's, not just
+                # their rectangles (which include transparent corners). Apples stay
+                # rectangle-based so they're easy to catch.
+                yoshiMask = pygame.mask.from_surface(yoshiImage)
                 for m in monsters:
-                    if yoshiRect.colliderect(m['rect']):
+                    if not yoshiRect.colliderect(m['rect']):
+                        continue
+                    offsetFromYoshi = (m['rect'].x - yoshiRect.x, m['rect'].y - yoshiRect.y)
+                    if m['type'] == APPLE_TYPE or yoshiMask.overlap(m['mask'], offsetFromYoshi):
                         if m['type'] == APPLE_TYPE:
                             ch = sounds['tongue'].play()
                             score += APPLE_POINTS[level]
