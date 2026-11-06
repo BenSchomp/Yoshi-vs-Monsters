@@ -25,6 +25,9 @@ NUMBER_OF_MONSTERS = 5
 MAX_MONSTER_RATE = [110,90,70,50,30,15]
 
 APPLE_TYPE = 0
+# Each drop is a random pick of the 5 types (so ~1 in 5 is an apple), except:
+# never two apples in a row, and if no apple has dropped for this long, the next drop is one.
+MAX_SECONDS_WITHOUT_APPLE = 20
 NUM_LEVELS = 5
 APPLE_POINTS = [200, 250, 300, 400, 500]
 LEVEL_UP_APPLES = [5,6,7,8,9]
@@ -238,6 +241,8 @@ async def main():
 
             # reset monsters
             monsters = []
+            previousDropWasApple = False
+            framesSinceLastApple = 0
             newMonsterRate = MAX_MONSTER_RATE[level]
             monsterAddCounter = MAX_MONSTER_RATE[level] * 3 // 4
 
@@ -290,13 +295,22 @@ async def main():
 
                 # add a new monster?
                 monsterAddCounter += 1
+                framesSinceLastApple += 1
                 if monsterAddCounter >= newMonsterRate:
                     monsterAddCounter = 0
                     if newMonsterRate > MAX_MONSTER_RATE[level+1]:
                         newMonsterRate -= 1
 
                     monsterScale = (random.randint (MONSTER_MIN_SCALE,10) * 10) / 100.0 # {.6, .7, .8, .9, 1.0}
-                    monsterType = random.randint(0,NUMBER_OF_MONSTERS-1)
+                    if previousDropWasApple:
+                        monsterType = random.randint(1, NUMBER_OF_MONSTERS-1) # any non-apple
+                    elif framesSinceLastApple >= MAX_SECONDS_WITHOUT_APPLE * FPS:
+                        monsterType = APPLE_TYPE
+                    else:
+                        monsterType = random.randint(0, NUMBER_OF_MONSTERS-1)
+                    previousDropWasApple = monsterType == APPLE_TYPE
+                    if previousDropWasApple:
+                        framesSinceLastApple = 0
                     monsterWidth = int(monsterSizes[monsterType][0] * monsterScale)
                     monsterHeight = int(monsterSizes[monsterType][1] * monsterScale)
                     monsterSurface = pygame.transform.scale(monsterImages[monsterType], (monsterWidth, monsterHeight))
